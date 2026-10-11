@@ -1,6 +1,6 @@
 {
   "name": "openclaw-meshtastic",
-  "version": "2026.5.30",
+  "version": "2026.10.11",
   "description": "OpenClaw Meshtastic channel plugin via official protobuf transports (HTTP, TCP, serial)",
   "repository": {
     "type": "git",
@@ -31,7 +31,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
-    "openclaw": "2026.5.26",
+    "openclaw": "2026.9.8",
     "tsdown": "0.22.0",
     "tsx": "4.21.0",
     "typescript": "5.9.3",
