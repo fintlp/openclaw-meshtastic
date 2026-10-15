@@ -252,9 +252,11 @@ export function monitorMeshtasticProvider(
                   return;
                 }
                 // console.log, not logger.info: the plugin child logger's
-                // info lines never reach gateway.log (meshcore#38 pattern,
-                // verified live on this channel) — inbound mesh messages are
-                // airtime evidence and must be auditable. Content redaction
+                // info lines never reach gateway.log (verified live at the
+                // default 'info' level with no logging override configured —
+                // while ctx.log and console.* lines do appear; meshcore#38
+                // pattern). Inbound mesh messages are airtime evidence and
+                // must be auditable. Content redaction
                 // (logInboundMessageContent) is unchanged.
                 console.log(
                   formatInboundLogLine({
@@ -436,10 +438,12 @@ export function monitorMeshtasticProvider(
 
     await handle.configure();
 
-    // console.log, not logger.info: the child logger's info lines never
-    // reach gateway.log (verified live: zero "connected to Meshtastic"
-    // lines across months of uptime) — the connect line is the channel's
-    // primary liveness evidence.
+    // console.log, not logger.info — child-logger info lines never reach
+    // gateway.log (default 'info' level, no override; ctx.log and console.*
+    // lines do). The connect line is the channel's primary liveness
+    // evidence. Note: this intentionally logs the endpoint (host:port or
+    // serial path) — accepted tradeoff, matching the SDK's own non-redaction
+    // of bare host strings.
     console.log(
       `[${account.accountId}] connected to Meshtastic (${account.transport}) at ${formatMeshtasticEndpoint(account)}`,
     );
