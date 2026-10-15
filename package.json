@@ -1,10 +1,10 @@
 {
   "name": "openclaw-meshtastic",
-  "version": "2026.10.11",
+  "version": "2026.10.15",
   "description": "OpenClaw Meshtastic channel plugin via official protobuf transports (HTTP, TCP, serial)",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/skrashevich/openclaw-meshtastic.git"
+    "url": "git+https://github.com/fintlp/openclaw-meshtastic.git"
   },
   "license": "MIT",
   "type": "module",
