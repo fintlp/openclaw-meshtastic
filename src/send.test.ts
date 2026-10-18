@@ -17,12 +17,13 @@ vi.mock("./device-client.js", async (importOriginal) => {
   };
 });
 
-function createConfig(): CoreConfig {
+function createConfig(overrides?: Record<string, unknown>): CoreConfig {
   return {
     channels: {
       meshtastic: {
         host: "192.168.1.10",
         port: 4433,
+        ...overrides,
       },
     },
   } as CoreConfig;
@@ -49,13 +50,73 @@ describe("sendMessageMeshtastic", () => {
     getMeshtasticDeviceMock.mockReturnValue(handle);
 
     const result = await sendMessageMeshtastic("channel:3", "hello mesh", {
-      cfg: createConfig(),
+      cfg: createConfig({ groupTransmit: true }),
       ackWaitMs: 1,
     });
 
     expect(sendText).toHaveBeenCalledWith("hello mesh", "broadcast", true, 3, undefined);
     expect(result.messageId).toBe("77");
     expect(result.target).toBe("channel:3");
+  });
+
+  it("rejects group targets by default to preserve LoRa airtime", async () => {
+    const sendText = vi.fn(async () => 101);
+    const handle = {
+      accountId: "default",
+      myNodeNum: 123,
+      device: { sendText },
+    };
+    getMeshtasticDeviceMock.mockReturnValue(handle);
+
+    await expect(
+      sendMessageMeshtastic("channel:0", "broadcast forbidden", {
+        cfg: createConfig(),
+      }),
+    ).rejects.toThrow(/receive-only/);
+
+    await expect(
+      sendMessageMeshtastic("broadcast", "broadcast forbidden", {
+        cfg: createConfig(),
+      }),
+    ).rejects.toThrow(/receive-only/);
+
+    expect(sendText).not.toHaveBeenCalled();
+  });
+
+  it("rejects group targets when groupTransmit is explicitly false", async () => {
+    const sendText = vi.fn(async () => 101);
+    const handle = {
+      accountId: "default",
+      myNodeNum: 123,
+      device: { sendText },
+    };
+    getMeshtasticDeviceMock.mockReturnValue(handle);
+
+    await expect(
+      sendMessageMeshtastic("channel:0", "broadcast forbidden", {
+        cfg: createConfig({ groupTransmit: false }),
+      }),
+    ).rejects.toThrow(/receive-only/);
+
+    expect(sendText).not.toHaveBeenCalled();
+  });
+
+  it("transmits to group targets when groupTransmit is opted in", async () => {
+    const sendText = vi.fn(async () => 42);
+    const handle = {
+      accountId: "default",
+      myNodeNum: 123,
+      device: { sendText },
+    };
+    getMeshtasticDeviceMock.mockReturnValue(handle);
+
+    const result = await sendMessageMeshtastic("channel:0", "fleet update", {
+      cfg: createConfig({ groupTransmit: true }),
+      ackWaitMs: 50,
+    });
+
+    expect(sendText).toHaveBeenCalledWith("fleet update", "broadcast", true, 0, undefined);
+    expect(result.target).toBe("channel:0");
   });
 
   it("uses the packet queued by sendText when ACK does not resolve", async () => {
@@ -77,7 +138,7 @@ describe("sendMessageMeshtastic", () => {
     getMeshtasticDeviceMock.mockReturnValue(handle);
 
     const result = await sendMessageMeshtastic("channel:3", "queued mesh", {
-      cfg: createConfig(),
+      cfg: createConfig({ groupTransmit: true }),
       ackWaitMs: 1,
     });
 
@@ -128,6 +189,7 @@ describe("sendMessageMeshtastic", () => {
           meshtastic: {
             host: "192.168.1.10",
             textChunkLimit: 2,
+            groupTransmit: true,
           },
         },
       } as CoreConfig,
@@ -156,7 +218,7 @@ describe("sendMessageMeshtastic", () => {
     getMeshtasticDeviceMock.mockReturnValue(handle);
 
     await sendMessageMeshtastic("channel:3", "echo me", {
-      cfg: createConfig(),
+      cfg: createConfig({ groupTransmit: true }),
       ackWaitMs: 50,
     });
 

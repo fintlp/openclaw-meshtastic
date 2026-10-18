@@ -185,6 +185,12 @@ export async function sendMessageMeshtastic(
   }
 
   const target = resolveTarget(to, opts);
+  if (isMeshtasticGroupTarget(target) && account.config.groupTransmit !== true) {
+    throw new Error(
+      `Meshtastic group sends are disabled by default: ${target} is receive-only (LoRa airtime rule). ` +
+        "Set channels.meshtastic.groupTransmit=true to opt in to group transmission.",
+    );
+  }
   const chunkLimit = account.config.textChunkLimit ?? DEFAULT_CHUNK_LIMIT;
   const chunks = chunkText(text, chunkLimit);
   if (chunks.length === 0) {

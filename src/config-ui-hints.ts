@@ -41,6 +41,10 @@ export const meshtasticChannelConfigUiHints = {
     label: "Meshtastic Group Policy",
     help: 'Broadcast channel access control. "allowlist" requires channels.meshtastic.groups keys such as "channel:0".',
   },
+  groupTransmit: {
+    label: "Meshtastic Group Transmit",
+    help: "Default false: the send path refuses every channel/broadcast message (LoRa airtime rule). Set true to opt in to group transmission.",
+  },
   textChunkLimit: {
     label: "Meshtastic Text Chunk Limit",
     help: "Maximum characters per outbound mesh text message (default ~200). Long replies are split into chunks.",

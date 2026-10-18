@@ -39,6 +39,7 @@ const MeshtasticAccountSchemaBase = z
     defaultTo: z.string().optional(),
     groupPolicy: GroupPolicySchema.optional().default("allowlist"),
     groupAllowFrom: z.array(z.union([z.string(), z.number()])).optional(),
+    groupTransmit: z.boolean().optional().default(false),
     groups: z.record(z.string(), MeshtasticGroupSchema.optional()).optional(),
     channels: z.array(z.number().int().min(0).max(7)).optional(),
     mentionPatterns: z.array(z.string()).optional(),

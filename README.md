@@ -30,7 +30,7 @@ Five minutes of [docs/meshtastic.md](docs/meshtastic.md) saves the evening.
 ## What it does, in one breath
 
 - **Direct messages (DMs):** full two-way chat, with pairing/allowlist/open access control.
-- **Mesh broadcast channels:** per-channel group policy (allowlist by default) — the agent *can* reply on a channel when you deliberately configure it to. More on that choice below.
+- **Mesh broadcast channels:** per-channel group policy (allowlist by default) — plus a code-level guard: channel replies stay **refused in the send path** until you set `groupTransmit: true`. More on that choice below.
 - **Three official transports:** TCP (4403, default), HTTP (node API), USB serial.
 - **Client-side AES-CTR decryption** for TCP/serial — encrypted mesh traffic works out of the box.
 - **Reply-to threading, outbound chunking, multi-account, multi-agent binding.**
@@ -39,7 +39,13 @@ Five minutes of [docs/meshtastic.md](docs/meshtastic.md) saves the evening.
 
 Connecting an AI agent to a LoRa mesh is different from connecting it to a chat app. There is no network perimeter on the radio: anyone with an inexpensive board can DM your node. And everything transmitted on a channel is heard by every node in range — there is no edit button and no delete button on the airwaves.
 
-The defaults here are cautious: **`dmPolicy: "pairing"`** (every new contact needs your explicit approval) and **`groupPolicy: "allowlist"`** (only senders you list can trigger anything from a channel). Unlike its MeshCore sibling plugin — which is receive-only on groups *in code* — this plugin **can** transmit to a channel when your configuration allows a group reply through. That is a deliberate feature (Meshtastic channels are how fleets coordinate), and it comes with a standing request: LoRa airtime is a shared commons. An agent that chats on a public channel degrades the mesh for everyone in range. Keep group replies off unless you have a reason, and give your agent a standing instruction to never speak on mesh channels unprompted.
+The guardrails here are layered, and the important one is structural:
+
+1. **In the code.** The send path refuses every channel- or broadcast-addressed message by default — no matter what any agent session asks for — and automated tests pin the refusal. Meshtastic channels are how fleets coordinate, so there is exactly one way through: an explicit **`groupTransmit: true`** in `channels.meshtastic`. Removing the refusal would take a deliberate code change; enabling it takes a deliberate config change.
+2. **In the defaults.** **`dmPolicy: "pairing"`** (every new contact needs your explicit approval) and **`groupPolicy: "allowlist"`** (only senders you list can trigger anything from a channel). Both stay in force even with `groupTransmit` on.
+3. **In your agent's instructions (recommended).** Give your agent a standing rule to never speak on mesh channels unprompted — belt and suspenders on top of layer 1.
+
+Why so strict? LoRa airtime is a shared commons. An agent that chats on a public channel degrades the mesh for everyone in range. Keep `groupTransmit` off unless you have a reason.
 
 If your node advertises a GPS position, that position is broadcast to every node in range — publish one you are comfortable sharing with strangers.
 
