@@ -162,4 +162,23 @@ describe("sendMessageMeshtastic", () => {
 
     expect(sendText).toHaveBeenCalledWith("echo me", "broadcast", true, 3, undefined);
   });
+
+  it("uses a timestamp fallback message id when ACK and queue id are unavailable", async () => {
+    const sendText = vi.fn(() => new Promise<number>(() => undefined));
+    const handle = {
+      accountId: "default",
+      myNodeNum: 123,
+      device: {
+        sendText,
+      },
+    };
+    getMeshtasticDeviceMock.mockReturnValue(handle);
+
+    const result = await sendMessageMeshtastic("!00000002", "no ack", {
+      cfg: createConfig(),
+      ackWaitMs: 1,
+    });
+
+    expect(result.messageId).toMatch(/^fallback:\d+$/);
+  });
 });

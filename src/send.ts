@@ -104,6 +104,19 @@ function resolveLatestQueuedPacketId(device: MeshtasticSendDevice): number | und
   }).id;
 }
 
+function generateFallbackTimestampId(): number {
+  // Keep ids positive and reasonably unique even when HTTP bridges never return ACK ids.
+  return Date.now();
+}
+
+function parseReplyPacketId(replyTo?: string): number | undefined {
+  if (!replyTo || !/^\d+$/.test(replyTo)) {
+    return undefined;
+  }
+  const parsed = Number.parseInt(replyTo, 10);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
 async function waitForMeshtasticSend(params: {
   send: Promise<number>;
   device: MeshtasticSendDevice;
@@ -191,8 +204,7 @@ export async function sendMessageMeshtastic(
       baudRate: account.baudRate,
     }));
 
-  const replyId = opts.replyTo ? Number.parseInt(opts.replyTo, 10) : undefined;
-  const parsedReplyId = Number.isFinite(replyId) ? replyId : undefined;
+  const parsedReplyId = parseReplyPacketId(opts.replyTo);
 
   let lastPacketId = 0;
   if (isMeshtasticGroupTarget(target)) {
@@ -226,7 +238,8 @@ export async function sendMessageMeshtastic(
 
   recordMeshtasticOutboundActivity(account.accountId);
 
-  const messageId = String(lastPacketId);
+  const messageId =
+    lastPacketId > 0 ? String(lastPacketId) : `fallback:${generateFallbackTimestampId()}`;
   return {
     messageId,
     target,
