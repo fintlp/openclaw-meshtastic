@@ -229,6 +229,8 @@ No extra configuration is needed; decryption is transparent.
 - [CHANGELOG.md](CHANGELOG.md) — release history, mechanism-level entries.
 - [Issues](https://github.com/fintlp/openclaw-meshtastic/issues) — roadmap and known state live here.
 
+**Sibling:** running MeshCore hardware instead of Meshtastic? Same agent, other mesh — [openclaw-meshcore](https://github.com/fintlp/openclaw-meshcore) (`openclaw plugins install clawhub:@fintlp/openclaw-meshcore`).
+
 ## Compatibility & maintenance policy
 
 OpenClaw core ships often, and its plugin SDK evolves with it. This plugin is maintained against that reality under an explicit policy, so you can rely on it long-term:
