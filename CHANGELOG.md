@@ -6,6 +6,26 @@ This fork (`fintlp/openclaw-meshtastic`) is the maintained line; upstream
 (`skrashevich/openclaw-meshtastic`) has been dormant since May 2026. Fixes
 are offered upstream as PRs. Date-based versioning: `2026.M.P`.
 
+## Unreleased
+
+**Fixes**
+
+- **Monitor promise now rejects on a mid-session device disconnect**
+  (port of fintlp/openclaw-meshcore#4): the `onDeviceStatus` disconnect
+  detector ran cleanup but never rejected the returned lifecycle promise —
+  the `settled` check inside the promise executor only runs once at
+  construction, so a drop after startup left the promise pending forever
+  and the gateway health-monitor blind: channel dark indefinitely, no
+  restart. The disconnect path now rejects the lifecycle; abort still
+  resolves cleanly. New `monitor.lifecycle.test.ts` pins mid-session
+  reject, no-reject-on-connect-event, no resolve-after-reject on late
+  abort, and the disconnect-during-startup path.
+- **Outbound send result `target` mapped to the structured SDK shape**
+  (`{ kind: "conversation", id }`): the openclaw 2026.10.1 SDK types
+  `OutboundDeliveryResult.target` as a structured object, not a string —
+  `tsc --noEmit` failed on the `sendText` wiring. Same mapping meshcore
+  already carries.
+
 ## 2026.10.15 — 2026-10-15
 
 **Fixes**

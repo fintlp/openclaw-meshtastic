@@ -391,6 +391,11 @@ export function monitorMeshtasticProvider(
 
     // ---- Disconnect detector: reject the outer promise when the device drops ----
     let settled = false;
+    // Wired to the settlement promise's reject once it exists (below). A
+    // mid-session disconnect must reject that promise — leaving it pending
+    // keeps the gateway health-monitor blind and the channel dark
+    // indefinitely (meshcore#4 class bug).
+    let rejectLifecycle: ((reason: Error) => void) | null = null;
 
     const doCleanup = () => {
       if (settled) return;
@@ -429,6 +434,9 @@ export function monitorMeshtasticProvider(
           });
           // Device dropped — reject the lifecycle so the health-monitor restarts.
           doCleanup();
+          rejectLifecycle?.(
+            new Error(`Meshtastic device disconnected (${name})`),
+          );
         }
         if (core.logging.shouldLogVerbose()) {
           logger.debug?.(`[${account.accountId}] device status: ${name}`);
@@ -452,9 +460,11 @@ export function monitorMeshtasticProvider(
     // external abort and rejects on device disconnect — in both cases the
     // gateway's health-monitor can restart the channel.
     return new Promise<{ stop: () => void }>((resolve, reject) => {
+      rejectLifecycle = reject;
       const onAbort = () => {
         if (settled) return;
-        settled = true;
+        // External abort resolves (clean stop) — never route through reject.
+        rejectLifecycle = null;
         doCleanup();
         resolve({ stop: () => {} });
       };
@@ -464,6 +474,7 @@ export function monitorMeshtasticProvider(
       // between configure() and this promise construction) reject immediately.
       if (settled) {
         opts.abortSignal?.removeEventListener("abort", onAbort);
+        rejectLifecycle = null;
         reject(new Error("Meshtastic device disconnected during startup"));
       }
     });
