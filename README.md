@@ -47,6 +47,8 @@ The guardrails here are layered, and the important one is structural:
 
 Why so strict? LoRa airtime is a shared commons. An agent that chats on a public channel degrades the mesh for everyone in range. Keep `groupTransmit` off unless you have a reason.
 
+A second structural rail caps total output: the **flood guard** budgets outbound airtime packets per rolling window — 20 per 10 minutes for DMs, and a stricter 3 per 10 minutes for group channels — and refuses with a retry hint when the budget is exhausted, before the first frame goes on air. A message is always sent whole or refused whole, never partially aired. Tune via `sendRateLimit` (`maxSends`, `groupMaxSends`, `windowMs`, `enabled`).
+
 If your node advertises a GPS position, that position is broadcast to every node in range — publish one you are comfortable sharing with strangers.
 
 ## Privacy and logging

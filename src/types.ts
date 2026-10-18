@@ -51,6 +51,8 @@ export type MeshtasticAccountConfig = {
   dmHistoryLimit?: number;
   dms?: Record<string, DmConfig>;
   textChunkLimit?: number;
+  /** Outbound flood guard: cap airtime packets per rolling window (defaults: 20/10min DMs, 3/10min group). Refuses with a retry hint when tripped. Set enabled:false to disable. */
+  sendRateLimit?: { enabled?: boolean; maxSends?: number; windowMs?: number; groupMaxSends?: number };
   /** When true, inbound info logs include up to 80 characters of message text (default: metadata only). */
   logInboundMessageContent?: boolean;
   chunkMode?: "length" | "newline";

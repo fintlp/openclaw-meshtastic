@@ -6,6 +6,12 @@ This fork (`fintlp/openclaw-meshtastic`) is the maintained line; upstream
 (`skrashevich/openclaw-meshtastic`) has been dormant since May 2026. Fixes
 are offered upstream as PRs. Date-based versioning: `2026.M.P`.
 
+## Unreleased
+
+- **Outbound flood guard.** The send path now budgets airtime packets per rolling window (defaults: 20 per 10 minutes for DMs, a stricter 3 per 10 minutes for group channels) and refuses a message with a retry hint when the budget is exhausted — before the first frame is transmitted, never partially aired. Tune via channels.meshtastic.sendRateLimit (maxSends / groupMaxSends / windowMs / enabled:false to disable).
+- **Group-transmit code guard (default-deny).** The outbound send path now refuses every channel- or broadcast-addressed message unless `channels.meshtastic.groupTransmit: true` is set explicitly. Previously, group replies would transmit whenever group policy allowed them. DMs are unaffected. Tests pin both the refusal and the opt-in, and the README safety section now documents the guard. If you rely on channel replies, set `groupTransmit: true` when upgrading.
+- Added SECURITY.md: responsible-disclosure policy (private reporting via GitHub Security Advisories, scope, response expectations).
+
 ## 2026.10.21 — 2026-10-18
 
 Installability pass. Same-day follow-up to v2026.10.20; the changelog

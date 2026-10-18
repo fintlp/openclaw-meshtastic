@@ -19,6 +19,7 @@ import {
   parseMeshtasticNodeNum,
 } from "./normalize.js";
 import { getMeshtasticRuntime } from "./runtime.js";
+import { assertSendRateLimit, resolveSendRateLimitConfig } from "./rate-limit.js";
 import type { CoreConfig } from "./types.js";
 
 type SendMeshtasticOptions = {
@@ -196,6 +197,17 @@ export async function sendMessageMeshtastic(
   if (chunks.length === 0) {
     throw new Error("Message must be non-empty for Meshtastic sends");
   }
+
+  // Flood guard: refuse the whole message (never partially aired) when the
+  // account's rolling airtime budget is exhausted.
+  assertSendRateLimit({
+    accountId: account.accountId,
+    packets: chunks.length,
+    config: resolveSendRateLimitConfig(
+      account.config.sendRateLimit as Record<string, unknown> | undefined,
+    ),
+    kind: isMeshtasticGroupTarget(target) ? "group" : "dm",
+  });
 
   const handle =
     opts.deviceHandle ??

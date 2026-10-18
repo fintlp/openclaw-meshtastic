@@ -98,6 +98,10 @@
               ]
             }
           },
+          "groupTransmit": {
+            "default": false,
+            "type": "boolean"
+          },
           "groups": {
             "type": "object",
             "propertyNames": {
@@ -307,6 +311,30 @@
             "type": "number",
             "exclusiveMinimum": 0
           },
+          "sendRateLimit": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "maxSends": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "windowMs": {
+                "type": "integer",
+                "minimum": 1000,
+                "maximum": 9007199254740991
+              },
+              "groupMaxSends": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              }
+            },
+            "additionalProperties": false
+          },
           "logInboundMessageContent": {
             "type": "boolean"
           },
@@ -391,6 +419,10 @@
                       "number"
                     ]
                   }
+                },
+                "groupTransmit": {
+                  "default": false,
+                  "type": "boolean"
                 },
                 "groups": {
                   "type": "object",
@@ -601,6 +633,30 @@
                   "type": "number",
                   "exclusiveMinimum": 0
                 },
+                "sendRateLimit": {
+                  "type": "object",
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "maxSends": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    },
+                    "windowMs": {
+                      "type": "integer",
+                      "minimum": 1000,
+                      "maximum": 9007199254740991
+                    },
+                    "groupMaxSends": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "additionalProperties": false
+                },
                 "logInboundMessageContent": {
                   "type": "boolean"
                 }
@@ -608,7 +664,8 @@
               "required": [
                 "transport",
                 "dmPolicy",
-                "groupPolicy"
+                "groupPolicy",
+                "groupTransmit"
               ],
               "additionalProperties": false
             }
@@ -620,7 +677,8 @@
         "required": [
           "transport",
           "dmPolicy",
-          "groupPolicy"
+          "groupPolicy",
+          "groupTransmit"
         ],
         "additionalProperties": false
       },
@@ -665,9 +723,17 @@
           "label": "Meshtastic Group Policy",
           "help": "Broadcast channel access control. \"allowlist\" requires channels.meshtastic.groups keys such as \"channel:0\"."
         },
+        "groupTransmit": {
+          "label": "Meshtastic Group Transmit",
+          "help": "Default false: the send path refuses every channel/broadcast message (LoRa airtime rule). Set true to opt in to group transmission."
+        },
         "textChunkLimit": {
           "label": "Meshtastic Text Chunk Limit",
           "help": "Maximum characters per outbound mesh text message (default ~200). Long replies are split into chunks."
+        },
+        "sendRateLimit": {
+          "label": "Meshtastic Send Rate Limit",
+          "help": "Flood guard: caps outbound airtime packets per rolling window (default 20 per 10 minutes for DMs, 3 for group channels). Refuses with a retry hint when tripped. Set enabled:false to disable."
         },
         "logInboundMessageContent": {
           "label": "Log Inbound Message Content",

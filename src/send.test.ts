@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { clearOutboundEchoCache, isOutboundEcho } from "./echo-dedupe.js";
+import { clearSendRateLimitState } from "./rate-limit.js";
 import { sendMessageMeshtastic } from "./send.js";
 import type { CoreConfig } from "./types.js";
 
@@ -33,6 +34,7 @@ describe("sendMessageMeshtastic", () => {
   afterEach(() => {
     clearOutboundEchoCache();
     vi.clearAllMocks();
+    clearSendRateLimitState();
   });
 
   it("does not block on Meshtastic routing ACK when HTTP send is queued", async () => {
@@ -117,6 +119,47 @@ describe("sendMessageMeshtastic", () => {
 
     expect(sendText).toHaveBeenCalledWith("fleet update", "broadcast", true, 0, undefined);
     expect(result.target).toBe("channel:0");
+  });
+
+  it("refuses DMs once the rolling rate-limit budget is exhausted", async () => {
+    const sendText = vi.fn(async () => 42);
+    const handle = {
+      accountId: "default",
+      myNodeNum: 123,
+      device: { sendText },
+    };
+    getMeshtasticDeviceMock.mockReturnValue(handle);
+    const cfg = createConfig({ sendRateLimit: { maxSends: 2, windowMs: 60_000 } });
+
+    await sendMessageMeshtastic("!00000002", "one", { cfg });
+    await sendMessageMeshtastic("!00000002", "two", { cfg });
+    expect(sendText).toHaveBeenCalledTimes(2);
+
+    await expect(sendMessageMeshtastic("!00000002", "three", { cfg })).rejects.toThrow(
+      /rate limit/,
+    );
+    expect(sendText).toHaveBeenCalledTimes(2);
+  });
+
+  it("caps opted-in group sends at the stricter group budget while DMs still pass", async () => {
+    const sendText = vi.fn(async () => 42);
+    const handle = {
+      accountId: "default",
+      myNodeNum: 123,
+      device: { sendText },
+    };
+    getMeshtasticDeviceMock.mockReturnValue(handle);
+    const cfg = createConfig({
+      groupTransmit: true,
+      sendRateLimit: { maxSends: 5, groupMaxSends: 1, windowMs: 60_000 },
+    });
+
+    await sendMessageMeshtastic("channel:0", "fleet one", { cfg });
+    await expect(sendMessageMeshtastic("channel:0", "fleet two", { cfg })).rejects.toThrow(
+      /rate limit/,
+    );
+    await sendMessageMeshtastic("!00000002", "dm still fine", { cfg });
+    expect(sendText).toHaveBeenCalledTimes(2);
   });
 
   it("uses the packet queued by sendText when ACK does not resolve", async () => {
