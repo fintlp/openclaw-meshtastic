@@ -308,11 +308,19 @@ export const meshtasticPlugin: ChannelPlugin<ResolvedMeshtasticAccount, Meshtast
         channel: "meshtastic",
         sendText: async ({ cfg, to, text, accountId, replyToId }) => {
           const { sendMessageMeshtastic } = await loadMeshtasticChannelRuntime();
-          return await sendMessageMeshtastic(to, text, {
+          const result = await sendMessageMeshtastic(to, text, {
             cfg: cfg as CoreConfig,
             accountId: accountId ?? undefined,
             replyTo: replyToId ?? undefined,
           });
+          return {
+            messageId: result.messageId,
+            target: {
+              kind: "conversation" as const,
+              id: result.target,
+            },
+            receipt: result.receipt,
+          };
         },
       },
     },
