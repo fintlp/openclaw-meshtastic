@@ -6,6 +6,20 @@ This fork (`fintlp/openclaw-meshtastic`) is the maintained line; upstream
 (`skrashevich/openclaw-meshtastic`) has been dormant since May 2026. Fixes
 are offered upstream as PRs. Date-based versioning: `2026.M.P`.
 
+## 2026.10.20 — 2026-10-18
+
+Catalog icon. Same-day follow-up to v2026.10.19; the changelog date is
+the true ship date.
+
+Docs / catalog
+
+- ClawHub catalog icon added: the OpenClaw lobster family style (dark
+  navy field, coral creature, teal signal) with a mesh-network triangle
+  above the head as the Meshtastic detail. Hand-authored SVG kept in the
+  repo at assets/icon.svg (outside the package files list) for future
+  edits; the shipped raster is assets/icon.png, 512x512, 25 KB. No code
+  changes in this release.
+
 ## 2026.10.19 — 2026-10-18
 
 First ClawHub release, published as @fintlp/openclaw-meshtastic. Same-day

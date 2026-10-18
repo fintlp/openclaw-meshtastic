@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>openclaw-meshtastic</title>
+  <rect id="background" width="512" height="512" rx="113" fill="#101A26"/>
+  <g id="halo" fill="none" stroke-width="10" stroke-linecap="round">
+    <path stroke="#2E7E8C" d="M217.4 93.2A52 52 0 0 1 294.6 93.2"/>
+    <path stroke="#57B8C4" d="M228.5 103.2A37 37 0 0 1 283.5 103.2"/>
+  </g>
+  <g id="mesh-links" stroke="#2E7E8C" stroke-width="11" stroke-linecap="round">
+    <line x1="256" y1="128" x2="212" y2="192"/>
+    <line x1="256" y1="128" x2="300" y2="192"/>
+    <line x1="212" y1="192" x2="300" y2="192"/>
+  </g>
+  <g id="creature">
+    <g id="antennae" fill="none" stroke="#E8563F" stroke-width="8" stroke-linecap="round">
+      <path d="M238 262C232 234 224 212 212 192"/>
+      <path d="M274 262C280 234 288 212 300 192"/>
+    </g>
+    <g id="arms" fill="none" stroke="#E8563F" stroke-width="26" stroke-linecap="round">
+      <path d="M220 302C190 300 164 286 154 252"/>
+      <path d="M292 302C322 300 348 286 358 252"/>
+    </g>
+    <g id="claws" fill="#F87B5E">
+      <path id="claw-left" d="M152 258C100 262 58 222 62 172C65 132 88 100 116 86C130 80 144 88 140 104C132 126 130 146 138 160C142 146 150 132 162 122C172 116 182 124 178 136C174 180 178 236 152 258Z"/>
+      <path id="claw-right" transform="matrix(-1 0 0 1 512 0)" d="M152 258C100 262 58 222 62 172C65 132 88 100 116 86C130 80 144 88 140 104C132 126 130 146 138 160C142 146 150 132 162 122C172 116 182 124 178 136C174 180 178 236 152 258Z"/>
+    </g>
+    <g id="tail" fill="#E8563F">
+      <rect x="217" y="340" width="78" height="30" rx="15"/>
+      <rect x="222" y="367" width="68" height="28" rx="14"/>
+      <rect x="227" y="392" width="58" height="26" rx="13"/>
+      <rect x="232" y="415" width="48" height="24" rx="12"/>
+      <path id="tail-fan" d="M256 432C233 432 210 441 202 455C219 463 242 460 256 452C270 460 293 463 310 455C302 441 279 432 256 432Z"/>
+    </g>
+    <ellipse id="body" cx="256" cy="302" rx="58" ry="48" fill="#E8563F"/>
+    <g id="eyes" fill="#101A26">
+      <circle cx="237" cy="290" r="8"/>
+      <circle cx="275" cy="290" r="8"/>
+    </g>
+    <path id="mouth" fill="none" stroke="#101A26" stroke-width="5" stroke-linecap="round" d="M246 311Q256 319 266 311"/>
+  </g>
+  <g id="mesh-nodes">
+    <circle cx="212" cy="192" r="18" fill="#57B8C4"/>
+    <circle cx="300" cy="192" r="18" fill="#57B8C4"/>
+    <circle cx="256" cy="128" r="23" fill="#6FD3DE"/>
+    <circle cx="256" cy="128" r="12" fill="#101A26"/>
+    <circle cx="256" cy="128" r="6" fill="#6FD3DE"/>
+  </g>
+</svg>
