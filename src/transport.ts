@@ -8,7 +8,7 @@ export const DEFAULT_SERIAL_BAUD = 115_200;
 
 export function normalizeMeshtasticTransport(raw?: string): MeshtasticTransport {
   const value = raw?.trim().toLowerCase();
-  if (value === "tcp" || value === "serial") {
+  if (value === "http" || value === "tcp" || value === "serial") {
     return value;
   }
   return "tcp";

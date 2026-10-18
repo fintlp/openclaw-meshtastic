@@ -7,6 +7,8 @@ import {
 
 describe("meshtastic transport helpers", () => {
   it("normalizes transport names", () => {
+    expect(normalizeMeshtasticTransport("http")).toBe("http");
+    expect(normalizeMeshtasticTransport("HTTP")).toBe("http");
     expect(normalizeMeshtasticTransport("TCP")).toBe("tcp");
     expect(normalizeMeshtasticTransport("serial")).toBe("serial");
     expect(normalizeMeshtasticTransport(undefined)).toBe("tcp");
