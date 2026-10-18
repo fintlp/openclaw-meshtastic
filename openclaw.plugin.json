@@ -71,13 +71,9 @@
           "allowFrom": {
             "type": "array",
             "items": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "number"
-                }
+              "type": [
+                "string",
+                "number"
               ]
             }
           },
@@ -96,13 +92,9 @@
           "groupAllowFrom": {
             "type": "array",
             "items": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "number"
-                }
+              "type": [
+                "string",
+                "number"
               ]
             }
           },
@@ -183,13 +175,9 @@
                 "allowFrom": {
                   "type": "array",
                   "items": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "number"
-                      }
+                    "type": [
+                      "string",
+                      "number"
                     ]
                   }
                 },
@@ -269,33 +257,45 @@
             "minimum": 40,
             "maximum": 500
           },
-          "chunkMode": {
-            "type": "string",
-            "enum": [
-              "length",
-              "newline"
-            ]
-          },
-          "blockStreaming": {
-            "type": "boolean"
-          },
-          "blockStreamingCoalesce": {
+          "streaming": {
             "type": "object",
             "properties": {
-              "minChars": {
-                "type": "integer",
-                "exclusiveMinimum": 0,
-                "maximum": 9007199254740991
+              "chunkMode": {
+                "type": "string",
+                "enum": [
+                  "length",
+                  "newline"
+                ]
               },
-              "maxChars": {
-                "type": "integer",
-                "exclusiveMinimum": 0,
-                "maximum": 9007199254740991
-              },
-              "idleMs": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 9007199254740991
+              "block": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "coalesce": {
+                    "type": "object",
+                    "properties": {
+                      "minChars": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "maxChars": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "idleMs": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
               }
             },
             "additionalProperties": false
@@ -306,6 +306,9 @@
           "mediaMaxMb": {
             "type": "number",
             "exclusiveMinimum": 0
+          },
+          "logInboundMessageContent": {
+            "type": "boolean"
           },
           "accounts": {
             "type": "object",
@@ -362,13 +365,9 @@
                 "allowFrom": {
                   "type": "array",
                   "items": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "number"
-                      }
+                    "type": [
+                      "string",
+                      "number"
                     ]
                   }
                 },
@@ -387,13 +386,9 @@
                 "groupAllowFrom": {
                   "type": "array",
                   "items": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "number"
-                      }
+                    "type": [
+                      "string",
+                      "number"
                     ]
                   }
                 },
@@ -474,13 +469,9 @@
                       "allowFrom": {
                         "type": "array",
                         "items": {
-                          "anyOf": [
-                            {
-                              "type": "string"
-                            },
-                            {
-                              "type": "number"
-                            }
+                          "type": [
+                            "string",
+                            "number"
                           ]
                         }
                       },
@@ -560,33 +551,45 @@
                   "minimum": 40,
                   "maximum": 500
                 },
-                "chunkMode": {
-                  "type": "string",
-                  "enum": [
-                    "length",
-                    "newline"
-                  ]
-                },
-                "blockStreaming": {
-                  "type": "boolean"
-                },
-                "blockStreamingCoalesce": {
+                "streaming": {
                   "type": "object",
                   "properties": {
-                    "minChars": {
-                      "type": "integer",
-                      "exclusiveMinimum": 0,
-                      "maximum": 9007199254740991
+                    "chunkMode": {
+                      "type": "string",
+                      "enum": [
+                        "length",
+                        "newline"
+                      ]
                     },
-                    "maxChars": {
-                      "type": "integer",
-                      "exclusiveMinimum": 0,
-                      "maximum": 9007199254740991
-                    },
-                    "idleMs": {
-                      "type": "integer",
-                      "minimum": 0,
-                      "maximum": 9007199254740991
+                    "block": {
+                      "type": "object",
+                      "properties": {
+                        "enabled": {
+                          "type": "boolean"
+                        },
+                        "coalesce": {
+                          "type": "object",
+                          "properties": {
+                            "minChars": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "maxChars": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "idleMs": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      },
+                      "additionalProperties": false
                     }
                   },
                   "additionalProperties": false
@@ -597,6 +600,9 @@
                 "mediaMaxMb": {
                   "type": "number",
                   "exclusiveMinimum": 0
+                },
+                "logInboundMessageContent": {
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -662,6 +668,10 @@
         "textChunkLimit": {
           "label": "Meshtastic Text Chunk Limit",
           "help": "Maximum characters per outbound mesh text message (default ~200). Long replies are split into chunks."
+        },
+        "logInboundMessageContent": {
+          "label": "Log Inbound Message Content",
+          "help": "When true, Gateway logs include up to 80 characters of inbound mesh text. Default is false (metadata only: sender, target, message id, length)."
         }
       }
     }
