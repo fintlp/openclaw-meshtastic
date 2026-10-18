@@ -17,7 +17,7 @@ same **protobuf** protocol as the Python CLI and Android app — not a custom wi
 ### From git checkout (development)
 
 ```bash
-git clone https://github.com/skrashevich/openclaw-meshtastic.git
+git clone https://github.com/fintlp/openclaw-meshtastic.git
 openclaw plugins install --link /path/to/openclaw-meshtastic
 ```
 
