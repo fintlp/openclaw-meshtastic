@@ -212,7 +212,7 @@ export const meshtasticSetupWizard: ChannelSetupWizard = {
       } else {
         const hostRaw = await prompter.text({
           message: "Meshtastic node host or IP",
-          placeholder: "192.168.1.225 or node.local (host:port also works)",
+          placeholder: "192.168.1.10 or meshtastic.local (host:port also works)",
           initialValue: endpoint.host || process.env.MESHTASTIC_HOST || "",
           validate: (value: string) => (normalizeOptionalString(value) ? undefined : "Required"),
         });

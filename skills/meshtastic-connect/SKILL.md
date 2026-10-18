@@ -31,7 +31,7 @@ The wizard asks how the gateway reaches the node (TCP 4403 / HTTP 4433 / USB ser
 Non-interactive alternative:
 
 ```bash
-openclaw channels add meshtastic --transport tcp --host 192.168.1.225
+openclaw channels add meshtastic --transport tcp --host 192.168.1.10
 # also: --serial-path /dev/cu.usbserial-0001 --baud-rate 115200 --dm-policy pairing|allowlist|open|disabled --group-transmit
 ```
 

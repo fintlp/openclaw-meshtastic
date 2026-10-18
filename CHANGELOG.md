@@ -6,6 +6,28 @@ This fork (`fintlp/openclaw-meshtastic`) is the maintained line; upstream
 (`skrashevich/openclaw-meshtastic`) has been dormant since May 2026. Fixes
 are offered upstream as PRs. Date-based versioning: `2026.M.P`.
 
+## 2026.10.23 — 2026-10-19
+
+Guided onboarding: the setup wizard now proves the connection before it
+writes anything, and reads the node's own identity back as evidence.
+
+Features
+
+- Probe-before-write onboarding wizard. `openclaw onboard` (or re-running channel setup) now walks transport selection (TCP 4403 recommended / HTTP 4433 / USB serial with auto-detected ports), parses `host:port` suffixes, then PROBES the candidate connection before any config is written. Failures get targeted diagnoses instead of a bare error: the classic 4403-vs-4433 mixup is detected from the probe signature and offered as a one-click transport switch; refused connections, VLAN-isolation timeouts, serial ports busy (single-owner rule) or missing (charge-only USB cable), and TLS mismatches each get their specific fix. Retry in place, or save-anyway for later troubleshooting.
+- Node identity readback. After a successful probe the wizard reads the node's identity off the radio — node ID, long/short name, LoRa region, firmware version — and warns when the region is UNSET (the node cannot transmit until a region is chosen in the Meshtastic app). Verified end-to-end against live hardware: probe answered in 12 ms, the full identity read in about a second.
+- The airtime rule is now a setup screen. Group transmit is presented as an explicit, informed opt-in during onboarding (default stays refused in the send path), and group entries created during setup default to mention-gated (`requireMention: true`) so a listening agent only speaks when addressed.
+- Non-interactive setup flags. `openclaw channels add meshtastic` now accepts `--transport tcp|http|serial`, `--serial-path`, `--baud-rate`, `--dm-policy`, and `--group-transmit` alongside the existing `--host` (which now also parses `host:port`) and `--tls`. Ports default per transport (4403 TCP, 4433 HTTP) and are written explicitly.
+
+Tooling-tests
+
+- 85/85 tests (was 69). New suites pin host:port parsing, per-transport port defaults, every probe-diagnosis mapping, baud-rate parsing, and non-interactive input normalization (dmPolicy enum, groupTransmit boolean strings).
+
+Docs
+
+- README quickstart reworked around the three-minute wizard path; the 4403≠4433 gotcha now notes the wizard detects it in-flow.
+- New companion skill on ClawHub (`@fintlp/meshtastic-connect`): the verified onboarding path plus the trap guide, for agents asked "make my OpenClaw speak Meshtastic".
+- Example host IPs in docs and wizard placeholders are generic (192.168.1.10/.20), not any operator's node.
+
 ## 2026.10.22 — 2026-10-18
 
 Airtime protection, a group-transmit guard, and a responsible-disclosure policy.

@@ -30,7 +30,7 @@ Meshtastic is the largest LoRa mesh ecosystem there is — cheap hardware, phone
 Prefer one-liners? Fully non-interactive:
 
 ```bash
-openclaw channels add meshtastic --transport tcp --host 192.168.1.225
+openclaw channels add meshtastic --transport tcp --host 192.168.1.10
 # flags: --transport tcp|http|serial --host h[:port] --tls --serial-path /dev/cu.usbserial-0001
 #        --baud-rate 115200 --dm-policy pairing|allowlist|open|disabled --group-transmit
 ```
