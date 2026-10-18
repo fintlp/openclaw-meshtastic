@@ -6,6 +6,39 @@ This fork (`fintlp/openclaw-meshtastic`) is the maintained line; upstream
 (`skrashevich/openclaw-meshtastic`) has been dormant since May 2026. Fixes
 are offered upstream as PRs. Date-based versioning: `2026.M.P`.
 
+## Unreleased
+
+**Fixes**
+
+- **`transport: "http"` is now actually honored**: `normalizeMeshtasticTransport`
+  silently rewrote `http` to `tcp` — an HTTP config became a TCP connection
+  attempt (ECONNREFUSED on 4433, or protocol garbage). Upstream-lineage bug
+  in identical form on skrashevich/main; the pre-existing normalizer test
+  pinned TCP/serial/unknown but never the http case. Found by the ported
+  probe test going red with a real connection attempt. Regression pin added.
+
+**Features**
+
+- **Bridge-compatibility port** (adapted from upstream's unmerged
+  `cdx/conduct-plugin-audit-for-compatibility` branch, original authors
+  Sergey Krashevich + copilot-swe-agent): HTTP probe falls back from
+  `OPTIONS /api/v1/toradio` to `GET /api/v1/fromradio?all=false` on
+  404/405 (serial2tcp-style bridges don't implement OPTIONS); strict
+  reply-id parsing (digits only, safe positive integer); `fallback:<ts>`
+  message id when a bridge returns no ACK and no queue id (sends
+  previously all reported messageId `"0"`). New probe.test.ts, fallback-id
+  send test.
+
+**Docs**
+
+- README overhaul mirroring the meshcore use-case-forward +
+  compatibility-policy pass: use-case tour, the 4403-vs-4433 and
+  TCP-ciphertext gotchas up front, honest group-transmit safety story (no
+  code-level receive-only here), Compatibility & maintenance policy
+  section (tracked SDK surface ~31 subpaths, deprecation precedent,
+  stable-tracking rule, host floor ≥2026.5.26). Install instructions now
+  point at the fork; package.json description use-case-led.
+
 ## 2026.10.18 — 2026-10-18
 
 **Fixes**
