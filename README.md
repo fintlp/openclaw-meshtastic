@@ -63,14 +63,25 @@ Review who can read Gateway logs and how long they are retained before enabling 
 
 ## Install
 
-From a git checkout (development):
+From ClawHub (recommended):
+
+```bash
+openclaw plugins install clawhub:@fintlp/openclaw-meshtastic
+```
+
+Then point it at your node (TCP is the default transport):
+
+```bash
+openclaw channels add meshtastic --host <node-ip>
+```
+
+Restart the Gateway after installing or enabling the plugin. Prefer a
+config file? See the quick setup below. From a git checkout (development):
 
 ```bash
 git clone https://github.com/fintlp/openclaw-meshtastic.git
 openclaw plugins install --link /path/to/openclaw-meshtastic
 ```
-
-Restart the Gateway after installing or enabling the plugin.
 
 ## Quick setup
 

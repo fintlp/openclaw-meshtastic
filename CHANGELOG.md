@@ -6,6 +6,24 @@ This fork (`fintlp/openclaw-meshtastic`) is the maintained line; upstream
 (`skrashevich/openclaw-meshtastic`) has been dormant since May 2026. Fixes
 are offered upstream as PRs. Date-based versioning: `2026.M.P`.
 
+## 2026.10.21 — 2026-10-18
+
+Installability pass. Same-day follow-up to v2026.10.20; the changelog
+date is the true ship date.
+
+Docs / install metadata
+
+- README Install section now leads with the ClawHub one-liner
+  (openclaw plugins install clawhub:@fintlp/openclaw-meshtastic) and the
+  channels add quickstart; the git-checkout path is marked development.
+- package.json gains keywords (openclaw, meshtastic, lora, mesh, radio,
+  off-grid and friends) and a homepage link for registry and search
+  surfaces.
+- install.defaultChoice flipped from npm to clawhub: the package is not
+  published on npm, so an npm-preferred install path would fail. The
+  documented install command was already the ClawHub one; now the
+  metadata agrees. No code changes in this release.
+
 ## 2026.10.20 — 2026-10-18
 
 Catalog icon. Same-day follow-up to v2026.10.19; the changelog date is
