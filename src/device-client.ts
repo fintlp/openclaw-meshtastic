@@ -70,7 +70,7 @@ function installHttpTransportBackpressure(
   };
 }
 
-async function createMeshtasticTransport(params: {
+export async function createMeshtasticTransport(params: {
   transport: MeshtasticTransport;
   host: string;
   port: number;

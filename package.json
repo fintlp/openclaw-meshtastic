@@ -62,12 +62,32 @@
       "quickstartAllowFrom": true,
       "cliAddOptions": [
         {
+          "flags": "--transport <mode>",
+          "description": "tcp (port 4403, recommended), http (4433), or serial"
+        },
+        {
           "flags": "--host <host>",
           "description": "Meshtastic node host or IP (optionally host:port)"
         },
         {
           "flags": "--tls",
           "description": "Use HTTPS for the Meshtastic HTTP API"
+        },
+        {
+          "flags": "--serial-path <path>",
+          "description": "Serial device path for transport=serial"
+        },
+        {
+          "flags": "--baud-rate <n>",
+          "description": "Serial baud rate (default 115200)"
+        },
+        {
+          "flags": "--dm-policy <policy>",
+          "description": "pairing (default), allowlist, open, or disabled"
+        },
+        {
+          "flags": "--group-transmit",
+          "description": "Opt in to channel/broadcast transmission (off by default — airtime rule)"
         }
       ]
     },

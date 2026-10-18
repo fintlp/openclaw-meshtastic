@@ -14,15 +14,30 @@
 
 Meshtastic is the largest LoRa mesh ecosystem there is — cheap hardware, phone apps for every platform, an enormous community. This plugin deliberately talks to your node the way the official apps do (protobuf over TCP/HTTP/serial), not through MQTT or any broker. Your messages never leave your LAN except over the radio itself.
 
-## From a node on your LAN to your first DM in ~15 minutes
+## From a node on your LAN to your first DM in ~3 minutes
 
 1. **Get a node on your network.** Any Meshtastic device with WiFi (a Heltec V3, a T-Beam, a LilyGo) running current firmware. No WiFi on the board? A USB-serial node works too, directly or through a [serial2tcp bridge](https://github.com/skrashevich/go-meshtastic-serial2tcp).
-2. **Install the plugin** and point it at the node — TCP port 4403 is the default and the right choice for most setups (see the gotcha below).
+2. **Install the plugin and run the guided setup:**
+
+   ```bash
+   openclaw plugins install clawhub:@fintlp/openclaw-meshtastic
+   openclaw onboard   # choose Meshtastic
+   ```
+
+   The wizard asks how the gateway reaches your node (TCP 4403 / HTTP 4433 / USB serial), **probes the connection before writing anything** (with targeted fixes for the classic traps — see below), reads the node's identity (ID, name, LoRa region) off the radio, and walks you through access policy with the safe defaults pre-selected.
 3. **Send yourself a DM** from a second device — a handheld, or the phone app paired to another node. Watch your agent answer. Over LoRa.
 
-Two gotchas cost real evenings, so they live at the top:
+Prefer one-liners? Fully non-interactive:
 
-- **4403 ≠ 4433.** TCP (protobuf stream) is port **4403**; HTTP (the node's web API) is port **4433** — and the HTTP API must be explicitly enabled in the node's network settings. Picking "http" and pointing at 4403 (or vice versa) fails in ways that look like everything *except* a wrong port. When in doubt: `transport: "tcp"`, port 4403.
+```bash
+openclaw channels add meshtastic --transport tcp --host 192.168.1.225
+# flags: --transport tcp|http|serial --host h[:port] --tls --serial-path /dev/cu.usbserial-0001
+#        --baud-rate 115200 --dm-policy pairing|allowlist|open|disabled --group-transmit
+```
+
+Two gotchas cost real evenings, so the wizard defuses them in-flow (and they live at the top here too):
+
+- **4403 ≠ 4433.** TCP (protobuf stream) is port **4403**; HTTP (the node's web API) is port **4433** — and the HTTP API must be explicitly enabled in the node's network settings. Picking "http" and pointing at 4403 (or vice versa) fails in ways that look like everything *except* a wrong port. The wizard's probe detects exactly this and offers to switch. When in doubt: `transport: "tcp"`, port 4403.
 - **TCP payloads arrive encrypted** and `@meshtastic/core` does not decrypt them. This plugin does — automatically, per-channel PSKs, no configuration. It just works, but only *because* the plugin handles it; a raw TCP client will show you ciphertext and confusion.
 
 Five minutes of [docs/meshtastic.md](docs/meshtastic.md) saves the evening.
