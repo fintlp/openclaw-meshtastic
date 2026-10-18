@@ -6,38 +6,53 @@ This fork (`fintlp/openclaw-meshtastic`) is the maintained line; upstream
 (`skrashevich/openclaw-meshtastic`) has been dormant since May 2026. Fixes
 are offered upstream as PRs. Date-based versioning: `2026.M.P`.
 
-## Unreleased
+## 2026.10.19 — 2026-10-18
 
-**Fixes**
+First ClawHub release, published as @fintlp/openclaw-meshtastic. Same-day
+follow-up to v2026.10.18; the changelog date is the true ship date.
 
-- **`transport: "http"` is now actually honored**: `normalizeMeshtasticTransport`
-  silently rewrote `http` to `tcp` — an HTTP config became a TCP connection
-  attempt (ECONNREFUSED on 4433, or protocol garbage). Upstream-lineage bug
-  in identical form on skrashevich/main; the pre-existing normalizer test
-  pinned TCP/serial/unknown but never the http case. Found by the ported
-  probe test going red with a real connection attempt. Regression pin added.
+Fixes
 
-**Features**
+- HTTP transport is now actually selectable: normalizeMeshtasticTransport
+  silently rewrote http to tcp, so an HTTP config became a TCP connection
+  attempt (ECONNREFUSED on 4433, or protocol garbage against a TCP
+  listener). Upstream-lineage bug, present in identical form on
+  skrashevich/main; the pre-existing normalizer test pinned TCP, serial
+  and unknown values but never the http case. Found by the ported probe
+  test going red with a real connection attempt. Regression pin added.
 
-- **Bridge-compatibility port** (adapted from upstream's unmerged
-  `cdx/conduct-plugin-audit-for-compatibility` branch, original authors
-  Sergey Krashevich + copilot-swe-agent): HTTP probe falls back from
-  `OPTIONS /api/v1/toradio` to `GET /api/v1/fromradio?all=false` on
-  404/405 (serial2tcp-style bridges don't implement OPTIONS); strict
-  reply-id parsing (digits only, safe positive integer); `fallback:<ts>`
-  message id when a bridge returns no ACK and no queue id (sends
-  previously all reported messageId `"0"`). New probe.test.ts, fallback-id
-  send test.
+Features
 
-**Docs**
+- Bridge-compatibility port, adapted from upstream's unmerged
+  cdx/conduct-plugin-audit-for-compatibility branch (original authors
+  Sergey Krashevich and copilot-swe-agent): the HTTP probe falls back
+  from OPTIONS /api/v1/toradio to GET /api/v1/fromradio?all=false on
+  404/405, because serial2tcp-style bridges do not implement OPTIONS;
+  reply-id parsing is now strict (digits only, safe positive integer);
+  sends report a fallback:<timestamp> message id when a bridge returns
+  no ACK and no queue id (every send previously reported messageId 0).
+  New probe test file, fallback-id send test. Suite 45/45.
 
-- README overhaul mirroring the meshcore use-case-forward +
+Docs
+
+- README overhaul mirroring the meshcore use-case-forward and
   compatibility-policy pass: use-case tour, the 4403-vs-4433 and
-  TCP-ciphertext gotchas up front, honest group-transmit safety story (no
-  code-level receive-only here), Compatibility & maintenance policy
-  section (tracked SDK surface ~31 subpaths, deprecation precedent,
-  stable-tracking rule, host floor ≥2026.5.26). Install instructions now
-  point at the fork; package.json description use-case-led.
+  TCP-ciphertext gotchas up front, an honest group-transmit safety story
+  (this plugin can reply on channels when policy allows — no code-level
+  receive-only), and a Compatibility and maintenance policy section:
+  tracked SDK surface (~31 subpaths), deprecation precedent, stable-
+  tracking rule, host floor >= 2026.5.26. Install instructions now point
+  at this fork; package description is use-case-led.
+- New docs/COMPATIBILITY.md (verified host/plugin/transport matrix) and
+  docs/PUBLISHING.md (the ClawHub release run-book, written during this
+  debut).
+
+Release mechanics
+
+- Package scoped to @fintlp/openclaw-meshtastic (publish owner), with
+  runtimeExtensions/runtimeSetupEntry declared, install npmSpec and
+  clawhubSpec mirrored, minHostVersion aligned to >= 2026.5.26, and the
+  manifest display name added.
 
 ## 2026.10.18 — 2026-10-18
 

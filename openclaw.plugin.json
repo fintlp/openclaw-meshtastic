@@ -675,5 +675,6 @@
         }
       }
     }
-  }
+  },
+  "name": "Meshtastic"
 }

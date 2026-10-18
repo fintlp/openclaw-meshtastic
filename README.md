@@ -213,6 +213,8 @@ No extra configuration is needed; decryption is transparent.
 ## Documentation
 
 - [docs/meshtastic.md](docs/meshtastic.md) — full configuration reference.
+- [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) — verified host/plugin/transport matrix, known interop quirks.
+- [docs/PUBLISHING.md](docs/PUBLISHING.md) — the ClawHub release run-book.
 - [CHANGELOG.md](CHANGELOG.md) — release history, mechanism-level entries.
 - [Issues](https://github.com/fintlp/openclaw-meshtastic/issues) — roadmap and known state live here.
 
@@ -229,7 +231,7 @@ OpenClaw core ships often, and its plugin SDK evolves with it. This plugin is ma
 - **Stable-tracking releases.** Plugin releases track OpenClaw **stable**. SDK surfaces that exist only in beta releases are adopted only after they reach stable (rule recorded 2026-10-18 against the Async inbound-envelope APIs in 2026.10.10-beta.1). We don't run beta hosts on the production path, and we don't ship plugin releases that require them.
 - **Host support window.** The declared floor is **OpenClaw ≥ 2026.5.26** (`peerDependencies`). When the floor moves, it follows the oldest stable still inside its compatibility window, ships in a minor release, and gets a changelog callout — never silently in a patch.
 - **Reliability fixes ride the release line.** Example: a mid-session transport drop used to leave the channel dark indefinitely (the monitor never rejected its lifecycle promise) — fixed and pinned by lifecycle tests in **v2026.10.18**.
-- **Where you see breakage first.** Known incompatibilities are filed on the [issues page](https://github.com/fintlp/openclaw-meshtastic/issues); fixes land here first and are offered upstream as PRs.
+- **Where you see breakage first.** Verified host/plugin/transport combinations live in [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md); known incompatibilities are filed on the [issues page](https://github.com/fintlp/openclaw-meshtastic/issues); fixes land here first and are offered upstream as PRs.
 
 ## Development
 
