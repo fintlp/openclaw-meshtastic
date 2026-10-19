@@ -6,6 +6,27 @@ This fork (`fintlp/openclaw-meshtastic`) is the maintained line; upstream
 (`skrashevich/openclaw-meshtastic`) has been dormant since May 2026. Fixes
 are offered upstream as PRs. Date-based versioning: `2026.M.P`.
 
+## 2026.10.24 — 2026-10-20
+
+OpenClaw 2026.10.5 compatibility: the host removed the plugin-sdk helper
+this plugin's gateway lifecycle ran on; this release moves to the public
+replacement and adds a guard test that catches the next removed export
+before it ships.
+
+Fixes
+
+- **OpenClaw 2026.10.5 load failure.** Compatible with OpenClaw 2026.10.5: replaced the removed `runStoppablePassiveMonitor` with `runPassiveAccountLifecycle` from `openclaw/plugin-sdk/channel-outbound`, passing an explicit `stop` callback that calls the monitor handle's `stop()` — the exact semantics the retired wrapper had (verified against the installed 2026.10.5 runtime: the handle is passed through, the stop closure is awaited, the lifecycle resolves after it). Without this change the plugin fails to register at gateway boot on 2026.10.5.
+
+Compatibility
+
+- **Host floor raised to OpenClaw ≥ 2026.10.1** (`peerDependencies.openclaw`, `openclaw.compat.pluginApi`, `openclaw.install.minHostVersion`): `channel-outbound` and `runPassiveAccountLifecycle` do not exist on 2026.5.26 (verified by packing that release). The build pin (`openclaw.build.openclawVersion`) and devDependency now track 2026.10.5.
+
+Tooling-tests
+
+- **SDK surface guard test** (`src/sdk-surface.test.ts`): scans the plugin's shipped sources at test time, collects every `openclaw/plugin-sdk/*` value import, and asserts each name exists as a real export of the installed host package — a removed export fails the suite before release, not at gateway boot.
+- **Gateway lifecycle test** (`src/gateway.lifecycle.test.ts`): start resolves a handle with `stop()`; aborting the signal calls `stop()` exactly once; the lifecycle promise resolves after the stop.
+- Suite: 87 tests across 17 files, all green on openclaw 2026.10.5; tests remain state-free by construction (no temp dirs, no host state).
+
 ## 2026.10.23 — 2026-10-19
 
 Guided onboarding: the setup wizard now proves the connection before it

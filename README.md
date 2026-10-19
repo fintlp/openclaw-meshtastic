@@ -263,9 +263,10 @@ OpenClaw core ships often, and its plugin SDK evolves with it. This plugin is ma
   grep -rhoE "openclaw/plugin-sdk[a-z/-]*" src/ *.ts | sort -u
   ```
   Today it spans ~31 subpaths covering the channel lifecycle (inbound, outbound, pairing, setup, status), account & config contracts, routing, and runtime helpers.
-- **Deprecation & removal response.** When OpenClaw retires an SDK surface we use, we migrate off it and record the migration in the [changelog](CHANGELOG.md). Precedent: OpenClaw 2026.10.1 removed the `channel-lifecycle` / `channel-message` / `outbound-runtime` compat aliases — the plugin migrated to `channel-outbound` in **v2026.10.11**, the same day the breakage class was identified.
+- **Deprecation & removal response.** When OpenClaw retires an SDK surface we use, we migrate off it and record the migration in the [changelog](CHANGELOG.md). Precedent: OpenClaw 2026.10.1 removed the `channel-lifecycle` / `channel-message` / `outbound-runtime` compat aliases — the plugin migrated to `channel-outbound` in **v2026.10.11**, the same day the breakage class was identified. OpenClaw 2026.10.5 removed the `runStoppablePassiveMonitor` helper from `extension-shared` — the plugin migrated to `runPassiveAccountLifecycle` (`channel-outbound`) in **v2026.10.24**, the same day.
 - **Stable-tracking releases.** Plugin releases track OpenClaw **stable**. SDK surfaces that exist only in beta releases are adopted only after they reach stable (rule recorded 2026-10-18 against the Async inbound-envelope APIs in 2026.10.10-beta.1). We don't run beta hosts on the production path, and we don't ship plugin releases that require them.
-- **Host support window.** The declared floor is **OpenClaw ≥ 2026.5.26** (`peerDependencies`). When the floor moves, it follows the oldest stable still inside its compatibility window, ships in a minor release, and gets a changelog callout — never silently in a patch.
+- **Host support window.** The declared floor is **OpenClaw ≥ 2026.10.1** (`peerDependencies`; moved from ≥ 2026.5.26 in v2026.10.24 because the replacement lifecycle API does not exist on 2026.5.26 — verified, not assumed). When the floor moves, it follows the oldest stable still inside its compatibility window, ships in a minor release, and gets a changelog callout — never silently in a patch.
+- **Load-path installs.** If the plugin runs from a git checkout or rsync'd copy under `~/.openclaw/plugins/`, its `node_modules/openclaw` must resolve to the host install via the **stable global link** (`~/Library/pnpm/global/5/node_modules/openclaw` on a pnpm-global setup) — never a real copy and never the versioned `.pnpm/openclaw@x.y.z` directory, which host upgrades delete (a deleted versioned dir took this plugin and MeshCore down once). Registry installs manage this themselves.
 - **Reliability fixes ride the release line.** Example: a mid-session transport drop used to leave the channel dark indefinitely (the monitor never rejected its lifecycle promise) — fixed and pinned by lifecycle tests in **v2026.10.18**.
 - **Where you see breakage first.** Verified host/plugin/transport combinations live in [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md); known incompatibilities are filed on the [issues page](https://github.com/fintlp/openclaw-meshtastic/issues); fixes land here first and are offered upstream as PRs.
 
@@ -282,6 +283,12 @@ After changing `src/config-schema.ts` or `src/config-ui-hints.ts`, regenerate ma
 
 ```bash
 npm run sync-manifest
+```
+
+The suite includes a self-maintaining **SDK surface guard** (`src/sdk-surface.test.ts`): it scans the shipped sources and fails if any `openclaw/plugin-sdk/*` import is missing from the installed host package. Before upgrading a gateway host, run it against the target release from a repo checkout:
+
+```bash
+npm i -D openclaw@<target> && npx vitest run sdk-surface
 ```
 
 ## License boundary

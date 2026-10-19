@@ -1,4 +1,4 @@
-import { runStoppablePassiveMonitor } from "openclaw/plugin-sdk/extension-shared";
+import { runPassiveAccountLifecycle } from "openclaw/plugin-sdk/channel-outbound";
 import type { ChannelAccountSnapshot } from "openclaw/plugin-sdk/status-helpers";
 import type { ResolvedMeshtasticAccount } from "./accounts.js";
 import { createAccountStatusSink } from "./channel-api.js";
@@ -33,7 +33,7 @@ export async function startMeshtasticGatewayAccount(ctx: {
   ctx.log?.info?.(
     `[${account.accountId}] starting Meshtastic provider (${account.transport}) at ${formatMeshtasticEndpoint(account)}`,
   );
-  await runStoppablePassiveMonitor({
+  await runPassiveAccountLifecycle({
     abortSignal: ctx.abortSignal,
     start: async () =>
       await monitorMeshtasticProvider({
@@ -43,5 +43,8 @@ export async function startMeshtasticGatewayAccount(ctx: {
         abortSignal: ctx.abortSignal,
         statusSink,
       }),
+    stop: async (monitor) => {
+      monitor.stop();
+    },
   });
 }
