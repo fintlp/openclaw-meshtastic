@@ -19,6 +19,11 @@ Get a user's OpenClaw agent onto their Meshtastic mesh — reachable by DM from 
 2. **LoRa region set on the node** (Meshtastic phone app → LoRa → Region). Region UNSET = the node cannot transmit. This is also law, not preference.
 3. Current firmware (2.5+ recommended).
 
+## Compatibility (read before installing)
+
+- **Minimum OpenClaw: 2026.10.1** — the plugin's declared floor (peerDependencies, compat.pluginApi and install.minHostVersion are all >=2026.10.1).
+- **OpenClaw 2026.10.5 or newer requires plugin 2026.10.24 or newer.** 2026.10.5 removed the SDK export runStoppablePassiveMonitor; older plugin versions fail to register at gateway boot with: The requested module 'openclaw/plugin-sdk/extension-shared' does not provide an export named 'runStoppablePassiveMonitor'. Fix: update or reinstall to the current release, then restart the gateway.
+
 ## Fast path
 
 ```bash
