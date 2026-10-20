@@ -3,8 +3,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  createChannelInboundEnvelopeBuilder,
-  resolveInboundSessionEnvelopeContext,
+  createChannelInboundEnvelopeBuilderAsync,
+  resolveInboundSessionEnvelopeContextAsync,
 } from "openclaw/plugin-sdk/channel-inbound";
 import { resolveAgentRoute } from "openclaw/plugin-sdk/routing";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
@@ -40,7 +40,7 @@ describe("meshtastic inbound envelope format (golden)", () => {
     } as OpenClawConfig;
   }
 
-  it("produces deterministic direct-DM envelope without previous timestamp", () => {
+  it("produces deterministic direct-DM envelope without previous timestamp", async () => {
     const cfg = makeConfig();
     const route = resolveAgentRoute({
       cfg,
@@ -50,13 +50,13 @@ describe("meshtastic inbound envelope format (golden)", () => {
       defaultAgentId: "meshtastic",
     });
 
-    const envelopeCtx = resolveInboundSessionEnvelopeContext({
+    const envelopeCtx = await resolveInboundSessionEnvelopeContextAsync({
       cfg,
       agentId: route.agentId,
       sessionKey: route.sessionKey,
     });
 
-    const buildEnvelope = createChannelInboundEnvelopeBuilder({
+    const buildEnvelope = await createChannelInboundEnvelopeBuilderAsync({
       cfg,
       route: { agentId: route.agentId, sessionKey: route.sessionKey },
     });
@@ -75,7 +75,7 @@ describe("meshtastic inbound envelope format (golden)", () => {
     expect(body).toBe("[Meshtastic !aabbccdd1122 Tue 2023-11-14T22:13:20Z] hello");
   });
 
-  it("produces deterministic group envelope without previous timestamp", () => {
+  it("produces deterministic group envelope without previous timestamp", async () => {
     const cfg = makeConfig();
     const route = resolveAgentRoute({
       cfg,
@@ -85,13 +85,13 @@ describe("meshtastic inbound envelope format (golden)", () => {
       defaultAgentId: "meshtastic",
     });
 
-    const envelopeCtx = resolveInboundSessionEnvelopeContext({
+    const envelopeCtx = await resolveInboundSessionEnvelopeContextAsync({
       cfg,
       agentId: route.agentId,
       sessionKey: route.sessionKey,
     });
 
-    const buildEnvelope = createChannelInboundEnvelopeBuilder({
+    const buildEnvelope = await createChannelInboundEnvelopeBuilderAsync({
       cfg,
       route: { agentId: route.agentId, sessionKey: route.sessionKey },
     });

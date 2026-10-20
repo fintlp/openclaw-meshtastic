@@ -6,6 +6,16 @@ This fork (`fintlp/openclaw-meshtastic`) is the maintained line; upstream
 (`skrashevich/openclaw-meshtastic`) has been dormant since May 2026. Fixes
 are offered upstream as PRs. Date-based versioning: `2026.M.P`.
 
+## 2026.10.28 — 2026-10-20
+
+Inbound envelope migrated to the async Plugin SDK surface
+(`resolveInboundSessionEnvelopeContextAsync` /
+`createChannelInboundEnvelopeBuilderAsync`). The sync variants retire
+2026-12-31 and are removed in the first January 2027 stable. No behavior
+change — the #4 golden envelope tests pin byte-identical output. Host
+floor raised to `>=2026.10.5` (the async APIs landed in 2026.10.5).
+Closes #4.
+
 ## 2026.10.27 — 2026-10-20
 
 Fail-closed follow-up to the 2026.10.26 group-reception change: `"allowlist"`

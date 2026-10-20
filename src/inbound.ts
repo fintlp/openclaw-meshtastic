@@ -1,7 +1,7 @@
 import {
-  createChannelInboundEnvelopeBuilder,
+  createChannelInboundEnvelopeBuilderAsync,
   logInboundDrop,
-  resolveInboundSessionEnvelopeContext,
+  resolveInboundSessionEnvelopeContextAsync,
 } from "openclaw/plugin-sdk/channel-inbound";
 import {
   channelIngressRoutes,
@@ -307,12 +307,12 @@ export async function handleMeshtasticInbound(params: {
 
   const fromLabel = message.isGroup ? message.target : message.senderId;
   const { storePath, envelopeOptions, previousTimestamp } =
-    resolveInboundSessionEnvelopeContext({
+    await resolveInboundSessionEnvelopeContextAsync({
       cfg: config as OpenClawConfig,
       agentId: route.agentId,
       sessionKey: route.sessionKey,
     });
-  const buildEnvelope = createChannelInboundEnvelopeBuilder({
+  const buildEnvelope = await createChannelInboundEnvelopeBuilderAsync({
     cfg: config as OpenClawConfig,
     route: { agentId: route.agentId, sessionKey: route.sessionKey },
   });

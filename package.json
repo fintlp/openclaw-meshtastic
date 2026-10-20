@@ -1,6 +1,6 @@
 {
   "name": "@fintlp/openclaw-meshtastic",
-  "version": "2026.10.27",
+  "version": "2026.10.28",
   "description": "An AI agent on your Meshtastic mesh — OpenClaw channel plugin over the official protobuf stack (TCP, HTTP, serial), fully local, no MQTT",
   "repository": {
     "type": "git",
@@ -39,7 +39,7 @@
     "vitest": "4.1.7"
   },
   "peerDependencies": {
-    "openclaw": ">=2026.10.1"
+    "openclaw": ">=2026.10.5"
   },
   "peerDependenciesMeta": {
     "openclaw": {
@@ -94,11 +94,11 @@
     "install": {
       "npmSpec": "@fintlp/openclaw-meshtastic",
       "defaultChoice": "clawhub",
-      "minHostVersion": ">=2026.10.1",
+      "minHostVersion": ">=2026.10.5",
       "clawhubSpec": "@fintlp/openclaw-meshtastic"
     },
     "compat": {
-      "pluginApi": ">=2026.10.1"
+      "pluginApi": ">=2026.10.5"
     },
     "build": {
       "openclawVersion": "2026.10.5"
