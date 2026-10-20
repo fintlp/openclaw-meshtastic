@@ -347,7 +347,7 @@ export const meshtasticSetupWizard: ChannelSetupWizard = {
       [
         "LoRa airtime is a shared commons: every node in range hears every channel message, and there is no delete button on the airwaves.",
         "",
-        "This plugin's send path REFUSES channel/broadcast messages unless you explicitly opt in. Direct messages always work either way.",
+        "This plugin's send path REFUSES channel/broadcast messages unless you explicitly opt in, and ALWAYS refuses the reserved broadcast address (^all, !ffffffff). Direct messages always work either way.",
       ].join("\n"),
       "The airtime rule",
     );

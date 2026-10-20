@@ -56,7 +56,7 @@ Connecting an AI agent to a LoRa mesh is different from connecting it to a chat 
 
 The guardrails here are layered, and the important one is structural:
 
-1. **In the code.** The send path refuses every channel- or broadcast-addressed message by default — no matter what any agent session asks for — and automated tests pin the refusal. Meshtastic channels are how fleets coordinate, so there is exactly one way through: an explicit **`groupTransmit: true`** in `channels.meshtastic`. Removing the refusal would take a deliberate code change; enabling it takes a deliberate config change.
+1. **In the code.** The send path refuses every channel- or broadcast-addressed message by default — no matter what any agent session asks for — and automated tests pin the refusal. The reserved broadcast address itself (node number `4294967295` / `!ffffffff`, or the `^all` alias) is refused **unconditionally** — no config flag, `groupTransmit` included, ever sends to it. Meshtastic channels are how fleets coordinate, so for channel traffic there is exactly one way through: an explicit **`groupTransmit: true`** in `channels.meshtastic`. Removing the refusal would take a deliberate code change; enabling channel transmission takes a deliberate config change.
 2. **In the defaults.** **`dmPolicy: "pairing"`** (every new contact needs your explicit approval) and **`groupPolicy: "allowlist"`** (only senders you list can trigger anything from a channel). Both stay in force even with `groupTransmit` on.
 3. **In your agent's instructions (recommended).** Give your agent a standing rule to never speak on mesh channels unprompted — belt and suspenders on top of layer 1.
 

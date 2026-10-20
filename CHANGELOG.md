@@ -6,6 +6,27 @@ This fork (`fintlp/openclaw-meshtastic`) is the maintained line; upstream
 (`skrashevich/openclaw-meshtastic`) has been dormant since May 2026. Fixes
 are offered upstream as PRs. Date-based versioning: `2026.M.P`.
 
+## 2026.10.25 — 2026-10-20
+
+Security-audit follow-up from the ClawHub review of 2026.10.24: the send
+path now refuses reserved broadcast addresses outright, and the plugin is
+off the retiring legacy inbound-envelope helper.
+
+Fixes
+
+- **Reserved broadcast addresses refused unconditionally** (ClawHub security audit, 2026-10-20: "do not rely on groupTransmit:false until reserved broadcast addresses are correctly guarded"). The send path now refuses the reserved broadcast node number in every accepted form — `4294967295`, `node:4294967295`, `!ffffffff` (any case, with or without the `meshtastic:` prefix) — plus the `^all` broadcast alias, REGARDLESS of `groupTransmit`. Previously these resolved as ordinary DM targets and would have transmitted to every node in range. Channel targets (`channel:N`, the `broadcast` channel alias) remain the only opt-in broadcast path, still gated by `groupTransmit` with the stricter rate budget. Tests pin every refused form under both flag states, and the docs now state the rule explicitly (README safety section, SECURITY.md, setup screen).
+
+- **Out-of-range node numbers refused at two layers** (same-day hardening on owner review): the send path now accepts only valid node numbers 1-4294967294 — 0, the reserved broadcast number, and every value above 32 bits are refused before any frame exists. This closes a silent wrap: @meshtastic/core writes the destination verbatim into the 32-bit MeshPacket.to field, so !1ffffffff (0x1FFFFFFFF) would have transmitted AS broadcast and node:4294967296 as destination 0. The same range check also runs inside the single device.sendText exit, so no future caller can bypass it. Tests pin !1ffffffff, !0ffffffff (leading-zero broadcast), node:4294967296, node:0, and a direct call to the exit.
+
+Refactors
+
+- **Migrated off deprecated `openclaw/plugin-sdk/inbound-envelope`** (ClawHub retirement notice; mirrors meshcore v2026.10.7, issue #43): replaced the single `resolveInboundRouteEnvelopeBuilderWithRuntime` call with the explicit modern sequence — `resolveAgentRoute` for routing, `resolveInboundSessionEnvelopeContext` for session store path / previous timestamp / envelope options, and `createChannelInboundEnvelopeBuilder` for envelope formatting. The deprecated module is no longer imported anywhere in the plugin. Note: the sync envelope APIs in this sequence carry their own 2026-12-31 retirement window per the publish inspector (meshcore is in the same boat); the final Async envelope surface exists from OpenClaw 2026.10.5, so that migration lands when the host floor reaches it.
+
+Tooling-tests
+
+- **Envelope golden-format tests** (`src/inbound.envelope.test.ts`): direct-DM and group envelope strings are pinned (`[Meshtastic <from> Tue 2023-11-14T22:13:20Z] <body>`) so the SDK migration cannot silently change the agent-visible message format and shift existing sessions/history.
+- Suite: 142 tests across 18 files, all green on openclaw 2026.10.5.
+
 ## 2026.10.24 — 2026-10-20
 
 OpenClaw 2026.10.5 compatibility: the host removed the plugin-sdk helper

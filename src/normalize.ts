@@ -39,6 +39,52 @@ export function parseMeshtasticNodeNum(raw: string): number | undefined {
   return undefined;
 }
 
+/** Reserved broadcast node number: reaches every node in range. */
+export const MESHTASTIC_BROADCAST_NODE_NUM = 0xffffffff;
+
+/**
+ * Reserved broadcast aliases. ^all is the Meshtastic app's broadcast
+ * address; matching is case-insensitive and tolerates the meshtastic:
+ * prefix, mirroring target parsing.
+ */
+export function isMeshtasticBroadcastAlias(raw: string): boolean {
+  let value = normalizeLowercaseStringOrEmpty(raw.trim());
+  if (value.startsWith("meshtastic:")) {
+    value = value.slice("meshtastic:".length).trim();
+  }
+  return value === "^all";
+}
+
+/**
+ * True when the raw target resolves to a reserved broadcast destination —
+ * the reserved broadcast node number in any accepted form (4294967295,
+ * node:4294967295, !ffffffff, case-insensitive, with or without the
+ * meshtastic: prefix) or a broadcast alias such as ^all. Channel targets
+ * (channel:N, ch:N, the "broadcast" channel alias) are NOT in this class:
+ * they are the ordinary channel path gated by groupTransmit.
+ */
+export function isReservedMeshtasticBroadcastTarget(raw: string): boolean {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return false;
+  }
+  if (isMeshtasticBroadcastAlias(trimmed)) {
+    return true;
+  }
+  return parseMeshtasticNodeNum(trimmed) === MESHTASTIC_BROADCAST_NODE_NUM;
+}
+
+/**
+ * Valid Meshtastic node numbers are 1..0xFFFFFFFE: 0 is no-node, and
+ * 0xFFFFFFFF is the reserved broadcast number. Values above 32 bits are
+ * dangerous — @meshtastic/core writes the destination verbatim into the
+ * 32-bit MeshPacket.to field, so they silently wrap (0x1FFFFFFFF becomes
+ * the broadcast address, 0x100000000 becomes 0).
+ */
+export function isValidMeshtasticNodeNum(nodeNum: number): boolean {
+  return Number.isSafeInteger(nodeNum) && nodeNum >= 1 && nodeNum <= 0xfffffffe;
+}
+
 export function formatMeshtasticChannelTarget(channelIndex: number): string {
   return `${CHANNEL_PREFIX}${channelIndex}`;
 }

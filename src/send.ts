@@ -14,6 +14,9 @@ import { rememberOutboundEcho } from "./echo-dedupe.js";
 import {
   formatMeshtasticNodeId,
   isMeshtasticGroupTarget,
+  isReservedMeshtasticBroadcastTarget,
+  isValidMeshtasticNodeNum,
+  MESHTASTIC_BROADCAST_NODE_NUM,
   normalizeMeshtasticMessagingTarget,
   parseMeshtasticChannelIndex,
   parseMeshtasticNodeNum,
@@ -143,7 +146,8 @@ async function waitForMeshtasticSend(params: {
   }
 }
 
-async function sendTextWithoutBlockingForAck(params: {
+/** Exported for tests; production callers go through sendMessageMeshtastic. */
+export async function sendTextWithoutBlockingForAck(params: {
   handle: MeshtasticDeviceHandle;
   text: string;
   destination: number | "broadcast";
@@ -151,6 +155,16 @@ async function sendTextWithoutBlockingForAck(params: {
   replyId?: number;
   ackWaitMs?: number;
 }): Promise<number> {
+  // Last-exit guard: a numeric destination must be a valid node number.
+  // @meshtastic/core writes the destination verbatim into the 32-bit
+  // MeshPacket.to field, so out-of-range values silently wrap (0x1FFFFFFFF
+  // becomes the broadcast address). "broadcast" is the channel-scoped form
+  // and stays gated upstream by groupTransmit.
+  if (typeof params.destination === "number" && !isValidMeshtasticNodeNum(params.destination)) {
+    throw new Error(
+      `Meshtastic send refused at the device exit: destination ${params.destination} is not a valid node number (1-4294967294).`,
+    );
+  }
   rememberOutboundEcho(params.text);
   const send = params.handle.device.sendText(
     params.text,
@@ -185,7 +199,30 @@ export async function sendMessageMeshtastic(
     );
   }
 
+  // Reserved broadcast addresses are refused unconditionally: the reserved
+  // broadcast node number reaches every node in range regardless of channel
+  // scoping, and no config flag (groupTransmit included) lifts this refusal
+  // (LoRa airtime rule). The raw-input check runs first so broadcast aliases
+  // like ^all get this clear reason instead of a generic invalid-target error.
+  if (
+    isReservedMeshtasticBroadcastTarget(to) ||
+    isReservedMeshtasticBroadcastTarget(opts?.target ?? "")
+  ) {
+    throw new Error(
+      `Meshtastic broadcast sends are refused: "${to}" resolves to the reserved broadcast address, which reaches every node in range (LoRa airtime rule). ` +
+        "Direct node messages always work; channel sends require channels.meshtastic.groupTransmit=true.",
+    );
+  }
   const target = resolveTarget(to, opts);
+  // Defense in depth: the normalized target must never be the reserved
+  // broadcast node number either (all accepted forms are already refused
+  // above; this pins the invariant at the boundary).
+  if (parseMeshtasticNodeNum(target) === MESHTASTIC_BROADCAST_NODE_NUM) {
+    throw new Error(
+      `Meshtastic broadcast sends are refused: ${target} is the reserved broadcast address, which reaches every node in range (LoRa airtime rule). ` +
+        "Direct node messages always work; channel sends require channels.meshtastic.groupTransmit=true.",
+    );
+  }
   if (isMeshtasticGroupTarget(target) && account.config.groupTransmit !== true) {
     throw new Error(
       `Meshtastic group sends are disabled by default: ${target} is receive-only (LoRa airtime rule). ` +
@@ -240,8 +277,10 @@ export async function sendMessageMeshtastic(
     }
   } else {
     const nodeNum = parseMeshtasticNodeNum(target);
-    if (nodeNum === undefined) {
-      throw new Error(`Invalid Meshtastic node target: ${target}`);
+    if (nodeNum === undefined || !isValidMeshtasticNodeNum(nodeNum)) {
+      throw new Error(
+        `Invalid Meshtastic node target: ${target} (valid node numbers are 1-4294967294; the reserved broadcast address and out-of-range values are refused — LoRa airtime rule)`,
+      );
     }
     for (const chunk of chunks) {
       lastPacketId = await sendTextWithoutBlockingForAck({

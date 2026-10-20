@@ -73,6 +73,13 @@ rather than instructional:
   refusal and the opt-in. On v2026.10.21 and earlier, channel transmission is
   possible whenever group policy allows it — upgrade, or keep
   `groupPolicy: "allowlist"` with an empty allowlist.
+- **Reserved broadcast addresses are refused unconditionally** (releases after
+  2026.10.24): the send path refuses the reserved broadcast node number in
+  every accepted form (`4294967295`, `node:4294967295`, `!ffffffff` any
+  case, with or without the `meshtastic:` prefix) and the `^all` broadcast
+  alias — regardless of `groupTransmit`. These reach every node in range
+  with no channel scoping, so no config flag lifts the refusal; automated
+  tests pin every form under both flag states.
 - **Cautious access defaults:** `dmPolicy: "pairing"` (every new contact needs
   your approval) and `groupPolicy: "allowlist"`.
 - **Metadata-only logging by default:** inbound message bodies are not logged

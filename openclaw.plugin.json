@@ -725,7 +725,7 @@
         },
         "groupTransmit": {
           "label": "Meshtastic Group Transmit",
-          "help": "Default false: the send path refuses every channel/broadcast message (LoRa airtime rule). Set true to opt in to group transmission."
+          "help": "Default false: the send path refuses every channel/broadcast message (LoRa airtime rule). Set true to opt in to group transmission. The reserved broadcast address (4294967295 / ^all) is always refused."
         },
         "textChunkLimit": {
           "label": "Meshtastic Text Chunk Limit",

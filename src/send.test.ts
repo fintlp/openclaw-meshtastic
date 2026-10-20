@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { clearOutboundEchoCache, isOutboundEcho } from "./echo-dedupe.js";
 import { clearSendRateLimitState } from "./rate-limit.js";
-import { sendMessageMeshtastic } from "./send.js";
+import { sendMessageMeshtastic, sendTextWithoutBlockingForAck } from "./send.js";
 import type { CoreConfig } from "./types.js";
 
 const { connectMeshtasticDeviceMock, getMeshtasticDeviceMock } = vi.hoisted(() => ({
@@ -285,5 +285,118 @@ describe("sendMessageMeshtastic", () => {
     });
 
     expect(result.messageId).toMatch(/^fallback:\d+$/);
+  });
+});
+
+describe("reserved broadcast refusal", () => {
+  afterEach(() => {
+    clearOutboundEchoCache();
+    vi.clearAllMocks();
+    clearSendRateLimitState();
+  });
+
+  const BROADCAST_FORMS = [
+    "4294967295",
+    "node:4294967295",
+    "!ffffffff",
+    "!FFFFFFFF",
+    "meshtastic:!ffffffff",
+    "!0ffffffff",
+    "^all",
+    "^ALL",
+    "meshtastic:^all",
+  ];
+
+  it.each(BROADCAST_FORMS)("refuses %s by default", async (form) => {
+    const sendText = vi.fn(async () => 42);
+    getMeshtasticDeviceMock.mockReturnValue({
+      accountId: "default",
+      myNodeNum: 123,
+      device: { sendText },
+    });
+
+    await expect(
+      sendMessageMeshtastic(form, "no broadcast", { cfg: createConfig() }),
+    ).rejects.toThrow(/reserved broadcast/i);
+    expect(sendText).not.toHaveBeenCalled();
+  });
+
+  it.each(BROADCAST_FORMS)("refuses %s even with groupTransmit opted in", async (form) => {
+    const sendText = vi.fn(async () => 42);
+    getMeshtasticDeviceMock.mockReturnValue({
+      accountId: "default",
+      myNodeNum: 123,
+      device: { sendText },
+    });
+
+    await expect(
+      sendMessageMeshtastic(form, "no broadcast", {
+        cfg: createConfig({ groupTransmit: true }),
+      }),
+    ).rejects.toThrow(/reserved broadcast/i);
+    expect(sendText).not.toHaveBeenCalled();
+  });
+
+  it("still allows a direct node DM with groupTransmit opted in", async () => {
+    const sendText = vi.fn(async () => 42);
+    getMeshtasticDeviceMock.mockReturnValue({
+      accountId: "default",
+      myNodeNum: 123,
+      device: { sendText },
+    });
+
+    const result = await sendMessageMeshtastic("!00000002", "dm ok", {
+      cfg: createConfig({ groupTransmit: true }),
+      ackWaitMs: 50,
+    });
+
+    expect(sendText).toHaveBeenCalledWith("dm ok", 2, true, undefined, undefined);
+    expect(result.target).toBe("!00000002");
+  });
+});
+
+describe("out-of-range node number refusal", () => {
+  afterEach(() => {
+    clearOutboundEchoCache();
+    vi.clearAllMocks();
+    clearSendRateLimitState();
+  });
+
+  it.each(["!1ffffffff", "node:4294967296", "!00000000", "node:0"])(
+    "refuses %s as out of range",
+    async (form) => {
+      const sendText = vi.fn(async () => 42);
+      getMeshtasticDeviceMock.mockReturnValue({
+        accountId: "default",
+        myNodeNum: 123,
+        device: { sendText },
+      });
+
+      await expect(
+        sendMessageMeshtastic(form, "no wrap", {
+          cfg: createConfig({ groupTransmit: true }),
+        }),
+      ).rejects.toThrow(/valid node numbers are 1-4294967294/);
+      expect(sendText).not.toHaveBeenCalled();
+    },
+  );
+
+  it("refuses at the device exit even when called directly", async () => {
+    const sendText = vi.fn(async () => 42);
+    const handle = { accountId: "default", myNodeNum: 123, device: { sendText } };
+
+    await expect(
+      sendTextWithoutBlockingForAck({ handle, text: "wrap", destination: 8589934591 }),
+    ).rejects.toThrow(/not a valid node number/);
+    expect(sendText).not.toHaveBeenCalled();
+
+    const ok = await sendTextWithoutBlockingForAck({
+      handle,
+      text: "ok",
+      destination: 2,
+      ackWaitMs: 5,
+    });
+    expect(sendText).toHaveBeenCalledWith("ok", 2, true, undefined, undefined);
+    expect(ok).toBe(42);
   });
 });

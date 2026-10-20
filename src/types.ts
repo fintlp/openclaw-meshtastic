@@ -40,7 +40,7 @@ export type MeshtasticAccountConfig = {
   defaultTo?: string;
   groupPolicy?: GroupPolicy;
   groupAllowFrom?: Array<string | number>;
-  /** Default false: the send path refuses every channel/broadcast target (LoRa airtime rule). Set true to opt in to group transmission. */
+  /** Default false: the send path refuses every channel/broadcast target (LoRa airtime rule). Set true to opt in to group transmission. Independent of this flag: the reserved broadcast address (4294967295 / ^all) is always refused. */
   groupTransmit?: boolean;
   groups?: Record<string, MeshtasticGroupConfig>;
   /** Mesh channel indices (0-7) to listen for broadcast messages. */
