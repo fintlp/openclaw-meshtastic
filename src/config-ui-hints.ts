@@ -39,7 +39,7 @@ export const meshtasticChannelConfigUiHints = {
   },
   groupPolicy: {
     label: "Meshtastic Group Policy",
-    help: 'Broadcast channel access control. "allowlist" requires channels.meshtastic.groups keys such as "channel:0".',
+    help: 'Broadcast channel access (default "disabled": channel traffic never triggers the agent). "allowlist" admits only the channels you list, NOT senders — pair it with groupAllowFrom or a per-group allowFrom and requireMention:true, or anyone on a public channel can trigger a session.',
   },
   groupTransmit: {
     label: "Meshtastic Group Transmit",

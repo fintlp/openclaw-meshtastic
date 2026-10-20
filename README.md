@@ -57,7 +57,7 @@ Connecting an AI agent to a LoRa mesh is different from connecting it to a chat 
 The guardrails here are layered, and the important one is structural:
 
 1. **In the code.** The send path refuses every channel- or broadcast-addressed message by default — no matter what any agent session asks for — and automated tests pin the refusal. The reserved broadcast address itself (node number `4294967295` / `!ffffffff`, or the `^all` alias) is refused **unconditionally** — no config flag, `groupTransmit` included, ever sends to it. Meshtastic channels are how fleets coordinate, so for channel traffic there is exactly one way through: an explicit **`groupTransmit: true`** in `channels.meshtastic`. Removing the refusal would take a deliberate code change; enabling channel transmission takes a deliberate config change.
-2. **In the defaults.** **`dmPolicy: "pairing"`** (every new contact needs your explicit approval) and **`groupPolicy: "allowlist"`** (only senders you list can trigger anything from a channel). Both stay in force even with `groupTransmit` on.
+2. **In the defaults.** **`dmPolicy: "pairing"`** (every new contact needs your explicit approval) and **`groupPolicy: "disabled"`** (channel traffic never triggers the agent unless you opt in). Both stay in force even with `groupTransmit` on. The two directions are separate: **`groupTransmit: false` stops your agent from transmitting on channels — it does not stop inbound channel messages from triggering the agent.** Inbound channel traffic is governed by `groupPolicy`: `"disabled"` (the default) drops it, `"open"` admits it, and `"allowlist"` admits only the channels you list. Note that `"allowlist"` gates **channels, not senders** — without `groupAllowFrom` or a per-group `allowFrom`, every sender on a listed public channel can trigger a session; pair it with explicit sender lists and `requireMention: true` (see [Receiving from a channel](#receiving-from-a-channel-opt-in-explicit)).
 3. **In your agent's instructions (recommended).** Give your agent a standing rule to never speak on mesh channels unprompted — belt and suspenders on top of layer 1.
 
 Why so strict? LoRa airtime is a shared commons. An agent that chats on a public channel degrades the mesh for everyone in range. Keep `groupTransmit` off unless you have a reason.
@@ -150,11 +150,7 @@ For local development, add the plugin path:
       host: "192.168.1.10",
       port: 4403,
       dmPolicy: "pairing",
-      groupPolicy: "allowlist",
-      channels: [0],
-      groups: {
-        "channel:0": { requireMention: false },
-      },
+      groupPolicy: "disabled",
     },
   },
 }
@@ -171,11 +167,7 @@ For local development, add the plugin path:
       host: "192.168.1.10",
       port: 4433,
       dmPolicy: "pairing",
-      groupPolicy: "allowlist",
-      channels: [0],
-      groups: {
-        "channel:0": { requireMention: false },
-      },
+      groupPolicy: "disabled",
     },
   },
 }
@@ -195,6 +187,27 @@ For local development, add the plugin path:
   },
 }
 ```
+
+#### Receiving from a channel (opt-in, explicit)
+
+`groupPolicy` is `"disabled"` by default — channel traffic never triggers the agent. Listening is a deliberate opt-in, and because `"allowlist"` admits **channels, not senders**, name the senders you mean:
+
+```json5
+{
+  channels: {
+    meshtastic: {
+      groupPolicy: "allowlist",
+      channels: [0],
+      groupAllowFrom: ["!aabbccdd"],           // only these nodes can trigger the agent
+      groups: {
+        "channel:0": { requireMention: true },  // and only when they mention it
+      },
+    },
+  },
+}
+```
+
+Without `groupAllowFrom` (or a per-group `allowFrom`), every node on that channel — anyone in radio range — can wake a session. `requireMention: true` narrows it further to messages that mention the agent. Replies on the channel stay refused unless you also set `groupTransmit: true`.
 
 ### 3. Optional: dedicate an agent to mesh traffic
 

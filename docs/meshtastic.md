@@ -217,9 +217,9 @@ Allowlist entries accept `!hex` node ids or decimal `node:` / numeric forms.
 
 ### Group / broadcast policy
 
-- **allowlist** (default): only keys in `groups` receive inbound broadcast traffic
+- **disabled** (default): broadcast messages are dropped — channel traffic never triggers the agent
+- **allowlist**: only channels listed in `channels` / `groups` keys receive inbound broadcast traffic. NOTE: this gates channels, not senders — without `groupAllowFrom` (or a per-group `allowFrom`) every sender on a listed channel can trigger the agent; pair it with `requireMention: true`
 - **open**: all configured mesh channels are accepted (mention rules may still apply)
-- **disabled**: broadcast messages are dropped
 
 Example group config:
 
@@ -230,10 +230,10 @@ Example group config:
       groupPolicy: "allowlist",
       channels: [3],
       groups: {
-        "channel:3": { requireMention: false },
+        "channel:3": { requireMention: true },
       },
       allowFrom: ["!aabbccdd"],
-      groupAllowFrom: ["!aabbccdd"],
+      groupAllowFrom: ["!aabbccdd"],   // required: allowlist gates channels, not senders
     },
   },
 }
@@ -299,8 +299,8 @@ This plugin supports both via official transports; you are not limited to a sing
 | `dmPolicy`       | string   | `"pairing"`   | DM access policy                       |
 | `allowFrom`      | array    | `[]`          | Allowed DM senders                     |
 | `defaultTo`      | string   | —             | Default outbound target                |
-| `groupPolicy`    | string   | `"allowlist"` | Broadcast access policy                |
-| `groupAllowFrom` | array    | `[]`          | Allowed broadcast senders              |
+| `groupPolicy`    | string   | `"disabled"`  | Broadcast access policy                |
+| `groupAllowFrom` | array    | `[]`          | Allowed broadcast senders (empty + allowlist = every sender admitted) |
 | `groups`         | object   | `{}`          | Per-channel policy (`channel:0`, etc.) |
 | `mentionPatterns`| array    | `[]`          | Regex patterns for mention detection   |
 | `markdown`       | object   | —             | Markdown rendering options             |

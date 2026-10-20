@@ -6,6 +6,27 @@ This fork (`fintlp/openclaw-meshtastic`) is the maintained line; upstream
 (`skrashevich/openclaw-meshtastic`) has been dormant since May 2026. Fixes
 are offered upstream as PRs. Date-based versioning: `2026.M.P`.
 
+## 2026.10.26 — 2026-10-20
+
+ClawHub audit follow-up (second finding): receive-side defaults and the
+documentation now match the guardrails this README promises.
+
+Fixes
+
+- **Group reception default is now `disabled`.** `groupPolicy` defaulted to `"allowlist"`, which gates CHANNELS, not senders — an allowlisted channel with no `groupAllowFrom` and no per-group `allowFrom` silently admitted every sender on that public channel (the plugin's `channelAllowlistedWithoutSenderFilter` → effective `open` fallback, now pinned by tests). New installs, and any config without an explicit `groupPolicy`, receive no channel traffic at all until deliberately opted in. MeshCore parity: both plugins are receive-only for groups by default.
+- **Docs corrected to the actual semantics** (README "Safety by default" + quick-setup examples, SECURITY.md, docs/meshtastic.md): `groupPolicy: "allowlist"` admits listed channels — sender narrowing requires `groupAllowFrom` or a per-group `allowFrom`; `requireMention: true` is the recommended companion; and `groupTransmit: false` governs the OUTBOUND direction only — it does not stop inbound channel messages from triggering the agent. All bundled transport examples now show `groupPolicy: "disabled"`; receiving is a separate opt-in example with explicit sender lists and mention gating.
+
+Upgrading?
+
+- **This changes behavior for existing configs that relied on the old default.** If your config does not set `groupPolicy` explicitly, channel messages no longer trigger the agent after this upgrade — that is intentional (the old default was the audit finding). To restore listening deliberately: set `groupPolicy: "allowlist"`, list the channels in `channels` / `groups`, name the senders in `groupAllowFrom` (or per-group `allowFrom`), and set `requireMention: true`.
+- If you already had `groupPolicy: "allowlist"` **with no sender lists**, you were admitting every sender on those channels — add `groupAllowFrom` now.
+- DMs are unaffected; `dmPolicy: "pairing"` semantics are unchanged.
+
+Tooling-tests
+
+- Schema default test (`groupPolicy` parses as `"disabled"`, explicit `"allowlist"` still accepted), inbound behavior tests: disabled drops channel traffic, allowlist + `groupAllowFrom` drops unlisted senders, `requireMention: true` drops unmentioned messages and dispatches mentioned ones, and the legacy allowlist-without-sender-list path is pinned as the documented trade-off.
+- Suite: 148 tests across 18 files, all green on openclaw 2026.10.5.
+
 ## 2026.10.25 — 2026-10-20
 
 Security-audit follow-up from the ClawHub review of 2026.10.24: the send

@@ -37,7 +37,7 @@ const MeshtasticAccountSchemaBase = z
     dmPolicy: DmPolicySchema.optional().default("pairing"),
     allowFrom: z.array(z.union([z.string(), z.number()])).optional(),
     defaultTo: z.string().optional(),
-    groupPolicy: GroupPolicySchema.optional().default("allowlist"),
+    groupPolicy: GroupPolicySchema.optional().default("disabled"),
     groupAllowFrom: z.array(z.union([z.string(), z.number()])).optional(),
     groupTransmit: z.boolean().optional().default(false),
     groups: z.record(z.string(), MeshtasticGroupSchema.optional()).optional(),

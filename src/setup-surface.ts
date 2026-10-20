@@ -436,7 +436,7 @@ export const meshtasticSetupWizard: ChannelSetupWizard = {
     placeholder: formatMeshtasticChannelTarget(0),
     currentPolicy: ({ cfg, accountId }) =>
       resolveMeshtasticAccount({ cfg: cfg as CoreConfig, accountId }).config.groupPolicy ??
-      "allowlist",
+      "disabled",
     currentEntries: ({ cfg, accountId }) =>
       Object.keys(resolveMeshtasticAccount({ cfg: cfg as CoreConfig, accountId }).config.groups ?? {}),
     updatePrompt: () => true,

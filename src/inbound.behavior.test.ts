@@ -91,6 +91,55 @@ function createMessage(overrides?: Partial<MeshtasticInboundMessage>): Meshtasti
   };
 }
 
+
+function installDispatchRuntime(inboundRun: ReturnType<typeof vi.fn>) {
+  setMeshtasticRuntime({
+    channel: {
+      pairing: {
+        readAllowFromStore: readAllowFromStoreMock,
+        upsertPairingRequest: upsertPairingRequestMock,
+      },
+      commands: {
+        shouldHandleTextCommands: shouldHandleTextCommandsMock,
+      },
+      text: {
+        hasControlCommand: hasControlCommandMock,
+      },
+      mentions: {
+        buildMentionRegexes: buildMentionRegexesMock,
+        matchesMentionPatterns: matchesMentionPatternsMock,
+      },
+      routing: {
+        resolveAgentRoute: vi.fn(() => ({
+          agentId: "meshtastic",
+          sessionKey: "meshtastic:channel:0",
+          accountId: "default",
+        })),
+      },
+      reply: {
+        finalizeInboundContext: vi.fn((ctx) => ctx),
+        resolveEnvelopeFormatOptions: vi.fn(() => ({})),
+        formatAgentEnvelope: vi.fn(({ body }) => ({
+          storePath: "/tmp/sessions.json",
+          body,
+        })),
+        dispatchReplyWithBufferedBlockDispatcher: vi.fn(),
+      },
+      inbound: {
+        run: inboundRun,
+      },
+      session: {
+        recordInboundSession: vi.fn(),
+        resolveStorePath: vi.fn(() => "/tmp/sessions.json"),
+        readSessionUpdatedAt: vi.fn(() => undefined),
+      },
+    },
+    config: {
+      current: () => ({ channels: { meshtastic: { host: "192.168.1.10" } } }),
+    },
+  } as never);
+}
+
 describe("meshtastic inbound behavior", () => {
   beforeEach(() => {
     readAllowFromStoreMock.mockReset().mockResolvedValue([]);
@@ -116,7 +165,7 @@ describe("meshtastic inbound behavior", () => {
     expect(sendReply).toHaveBeenCalled();
   });
 
-  it("dispatches broadcast from allowlisted channel without sender allowlist", async () => {
+  it("dispatches broadcast from an allowlisted channel without a sender list (documented trade-off: allowlist gates channels, not senders)", async () => {
     const sendReply = vi.fn(async () => undefined);
     setMeshtasticRuntime({
       channel: {
@@ -230,4 +279,92 @@ describe("meshtastic inbound behavior", () => {
       expect.stringContaining("drop channel channel:0 (not allowlisted)"),
     );
   });
+
+  it("drops group messages when groupPolicy is disabled (the default)", async () => {
+    const runtime = createRuntimeEnv();
+    await handleMeshtasticInbound({
+      message: createMessage({ isGroup: true, target: "channel:0" }),
+      account: createAccount({
+        config: { dmPolicy: "pairing", groupPolicy: "disabled", channels: [0] },
+      }),
+      config: { channels: { meshtastic: { host: "192.168.1.10" } } } as CoreConfig,
+      runtime,
+      sendReply: vi.fn(async () => undefined),
+    });
+
+    expect(runtime.log).toHaveBeenCalledWith(expect.stringContaining("policy=disabled"));
+  });
+
+  it("drops senders outside groupAllowFrom on an allowlisted channel", async () => {
+    const runtime = createRuntimeEnv();
+    await handleMeshtasticInbound({
+      message: createMessage({
+        isGroup: true,
+        target: "channel:0",
+        senderId: "!deadbeef",
+        senderNodeNum: 3735928559,
+      }),
+      account: createAccount({
+        config: {
+          dmPolicy: "pairing",
+          groupPolicy: "allowlist",
+          channels: [0],
+          groupAllowFrom: ["!00000002"],
+          groups: { "channel:0": { requireMention: false } },
+        },
+      }),
+      config: { channels: { meshtastic: { host: "192.168.1.10" } } } as CoreConfig,
+      runtime,
+      sendReply: vi.fn(async () => undefined),
+    });
+
+    expect(runtime.log).toHaveBeenCalledWith(expect.stringContaining("policy=allowlist"));
+  });
+
+  it("drops unmentioned group messages when requireMention is true", async () => {
+    matchesMentionPatternsMock.mockReturnValue(false);
+    const runtime = createRuntimeEnv();
+    await handleMeshtasticInbound({
+      message: createMessage({ isGroup: true, target: "channel:0" }),
+      account: createAccount({
+        config: {
+          dmPolicy: "pairing",
+          groupPolicy: "allowlist",
+          channels: [0],
+          groupAllowFrom: ["!00000002"],
+          groups: { "channel:0": { requireMention: true } },
+        },
+      }),
+      config: { channels: { meshtastic: { host: "192.168.1.10" } } } as CoreConfig,
+      runtime,
+      sendReply: vi.fn(async () => undefined),
+    });
+
+    expect(runtime.log).toHaveBeenCalledWith(expect.stringContaining("drop"));
+  });
+
+  it("dispatches a mentioned group message when requireMention is true", async () => {
+    matchesMentionPatternsMock.mockReturnValue(true);
+    const inboundRun = vi.fn(async () => ({ dispatched: true }));
+    installDispatchRuntime(inboundRun);
+
+    await handleMeshtasticInbound({
+      message: createMessage({ isGroup: true, target: "channel:0", text: "hey agent" }),
+      account: createAccount({
+        config: {
+          dmPolicy: "pairing",
+          groupPolicy: "allowlist",
+          channels: [0],
+          groupAllowFrom: ["!00000002"],
+          groups: { "channel:0": { requireMention: true } },
+        },
+      }),
+      config: { channels: { meshtastic: { host: "192.168.1.10" } } } as CoreConfig,
+      runtime: createRuntimeEnv(),
+      sendReply: vi.fn(async () => undefined),
+    });
+
+    expect(inboundRun).toHaveBeenCalled();
+  });
+
 });

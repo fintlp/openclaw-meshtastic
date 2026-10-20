@@ -73,6 +73,17 @@ rather than instructional:
   refusal and the opt-in. On v2026.10.21 and earlier, channel transmission is
   possible whenever group policy allows it — upgrade, or keep
   `groupPolicy: "allowlist"` with an empty allowlist.
+- **Inbound group traffic is default-deny** (releases after 2026.10.25):
+  `groupPolicy: "disabled"` by default — channel messages never trigger an agent
+  session until you opt in. Opting in is explicit and two-part: `"allowlist"`
+  with the channels you list (`channels` / `groups` keys), **plus**
+  `groupAllowFrom` (or a per-group `allowFrom`) to name the senders and
+  `requireMention: true` to require a mention. `"allowlist"` gates channels,
+  not senders: on releases up to 2026.10.25, a listed channel with no sender
+  list anywhere admitted every sender on it (the plugin's
+  `channelAllowlistedWithoutSenderFilter` → `open` fallback; pinned by a test).
+  `groupTransmit: false` governs the OUTBOUND direction only — it does not stop
+  inbound channel messages from triggering the agent.
 - **Reserved broadcast addresses are refused unconditionally** (releases after
   2026.10.24): the send path refuses the reserved broadcast node number in
   every accepted form (`4294967295`, `node:4294967295`, `!ffffffff` any
@@ -81,7 +92,8 @@ rather than instructional:
   with no channel scoping, so no config flag lifts the refusal; automated
   tests pin every form under both flag states.
 - **Cautious access defaults:** `dmPolicy: "pairing"` (every new contact needs
-  your approval) and `groupPolicy: "allowlist"`.
+  your approval) and `groupPolicy: "disabled"` (channel traffic never triggers
+  the agent until you opt in).
 - **Metadata-only logging by default:** inbound message bodies are not logged
   unless `logInboundMessageContent: true` is set deliberately.
 

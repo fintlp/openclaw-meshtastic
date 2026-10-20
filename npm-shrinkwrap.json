@@ -1,12 +1,12 @@
 {
   "name": "@fintlp/openclaw-meshtastic",
-  "version": "2026.10.25",
+  "version": "2026.10.26",
   "lockfileVersion": 3,
   "requires": true,
   "packages": {
     "": {
       "name": "@fintlp/openclaw-meshtastic",
-      "version": "2026.10.25",
+      "version": "2026.10.26",
       "license": "MIT",
       "dependencies": {
         "@meshtastic/core": "2.6.7",

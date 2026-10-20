@@ -33,6 +33,25 @@ describe("meshtastic config schema", () => {
     expect(config.channels).toEqual([0]);
   });
 
+  it("defaults groupPolicy to disabled", () => {
+    const config = expectValidConfig(
+      MeshtasticConfigSchema.safeParse({
+        host: "192.168.1.10",
+      }),
+    );
+    expect(config.groupPolicy).toBe("disabled");
+  });
+
+  it("still accepts explicit allowlist groupPolicy", () => {
+    const config = expectValidConfig(
+      MeshtasticConfigSchema.safeParse({
+        host: "192.168.1.10",
+        groupPolicy: "allowlist",
+      }),
+    );
+    expect(config.groupPolicy).toBe("allowlist");
+  });
+
   it("accepts logInboundMessageContent opt-in", () => {
     const config = expectValidConfig(
       MeshtasticConfigSchema.safeParse({
