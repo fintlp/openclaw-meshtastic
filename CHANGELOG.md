@@ -6,6 +6,25 @@ This fork (`fintlp/openclaw-meshtastic`) is the maintained line; upstream
 (`skrashevich/openclaw-meshtastic`) has been dormant since May 2026. Fixes
 are offered upstream as PRs. Date-based versioning: `2026.M.P`.
 
+## 2026.10.27 — 2026-10-20
+
+Fail-closed follow-up to the 2026.10.26 group-reception change: `"allowlist"`
+mode now requires a sender gate instead of falling back to admitting everyone.
+
+Fixes
+
+- **`groupPolicy: "allowlist"` is fail-closed.** The legacy `channelAllowlistedWithoutSenderFilter` → effective `"open"` fallback is removed: a listed channel with no `groupAllowFrom` and no per-group `allowFrom` now admits **nobody** instead of every sender in range. Channel and sender are two separate gates and both must pass; `requireMention: true` remains the recommended companion. Tests pin the drop and the explicit-sender dispatch path.
+
+Upgrading?
+
+- If you ran `groupPolicy: "allowlist"` with no sender lists (and relied on the old permissive fallback), channel messages will stop reaching the agent until you add `groupAllowFrom` (or a per-group `allowFrom`). Add your peers' node ids and, ideally, `requireMention: true`.
+- DMs and channel transmission are unaffected.
+
+Tooling-tests
+
+- Behavior tests updated: no-sender-list listed channel drops; explicit `groupAllowFrom` dispatches; unlisted sender drops; `requireMention: true` gates unmentioned messages and dispatches mentioned ones.
+- Suite: 149 tests across 18 files, all green on openclaw 2026.10.5.
+
 ## 2026.10.26 — 2026-10-20
 
 ClawHub audit follow-up (second finding): receive-side defaults and the

@@ -78,10 +78,12 @@ rather than instructional:
   session until you opt in. Opting in is explicit and two-part: `"allowlist"`
   with the channels you list (`channels` / `groups` keys), **plus**
   `groupAllowFrom` (or a per-group `allowFrom`) to name the senders and
-  `requireMention: true` to require a mention. `"allowlist"` gates channels,
-  not senders: on releases up to 2026.10.25, a listed channel with no sender
-  list anywhere admitted every sender on it (the plugin's
-  `channelAllowlistedWithoutSenderFilter` → `open` fallback; pinned by a test).
+  `requireMention: true` to require a mention. Both gates are enforced:
+  a listed channel with no sender list admits **nobody** (fail-closed since
+  2026.10.27). Releases up to 2026.10.25 were permissive here — a listed
+  channel with no sender list anywhere admitted every sender on it (the
+  `channelAllowlistedWithoutSenderFilter` → `open` fallback); that fallback
+  is gone, pinned by tests.
   `groupTransmit: false` governs the OUTBOUND direction only — it does not stop
   inbound channel messages from triggering the agent.
 - **Reserved broadcast addresses are refused unconditionally** (releases after

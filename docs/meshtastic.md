@@ -218,7 +218,7 @@ Allowlist entries accept `!hex` node ids or decimal `node:` / numeric forms.
 ### Group / broadcast policy
 
 - **disabled** (default): broadcast messages are dropped — channel traffic never triggers the agent
-- **allowlist**: only channels listed in `channels` / `groups` keys receive inbound broadcast traffic. NOTE: this gates channels, not senders — without `groupAllowFrom` (or a per-group `allowFrom`) every sender on a listed channel can trigger the agent; pair it with `requireMention: true`
+- **allowlist**: only channels listed in `channels` / `groups` keys receive inbound broadcast traffic, AND only senders named in `groupAllowFrom` (or a per-group `allowFrom`) can trigger the agent. A listed channel with no sender list admits nobody (fail-closed since 2026.10.27); `requireMention: true` narrows it further
 - **open**: all configured mesh channels are accepted (mention rules may still apply)
 
 Example group config:
@@ -300,7 +300,7 @@ This plugin supports both via official transports; you are not limited to a sing
 | `allowFrom`      | array    | `[]`          | Allowed DM senders                     |
 | `defaultTo`      | string   | —             | Default outbound target                |
 | `groupPolicy`    | string   | `"disabled"`  | Broadcast access policy                |
-| `groupAllowFrom` | array    | `[]`          | Allowed broadcast senders (empty + allowlist = every sender admitted) |
+| `groupAllowFrom` | array    | `[]`          | Allowed broadcast senders (empty + allowlist = nobody admitted, fail-closed) |
 | `groups`         | object   | `{}`          | Per-channel policy (`channel:0`, etc.) |
 | `mentionPatterns`| array    | `[]`          | Regex patterns for mention detection   |
 | `markdown`       | object   | —             | Markdown rendering options             |

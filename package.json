@@ -1,6 +1,6 @@
 {
   "name": "@fintlp/openclaw-meshtastic",
-  "version": "2026.10.26",
+  "version": "2026.10.27",
   "description": "An AI agent on your Meshtastic mesh — OpenClaw channel plugin over the official protobuf stack (TCP, HTTP, serial), fully local, no MQTT",
   "repository": {
     "type": "git",

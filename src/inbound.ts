@@ -182,17 +182,15 @@ export async function handleMeshtasticInbound(params: {
       ? groupMatch.groupConfig.allowFrom
       : groupMatch.wildcardConfig?.allowFrom,
   );
-  const channelAllowlistedWithoutSenderFilter =
-    groupPolicy === "allowlist" &&
-    message.isGroup &&
-    groupMatch.allowed &&
-    groupMatch.hasConfiguredGroups &&
-    !hasEntries(account.config.groupAllowFrom) &&
-    !hasEntries(routeGroupAllowFrom);
-  const accessGroupPolicy: MeshtasticGroupPolicy = channelAllowlistedWithoutSenderFilter
-    ? "open"
-    : groupPolicy === "open" &&
-        (hasEntries(account.config.groupAllowFrom) || hasEntries(routeGroupAllowFrom))
+  // Fail-closed (2026.10.27): with groupPolicy "allowlist" a channel message
+  // must pass BOTH the channel gate and a sender gate. When neither
+  // groupAllowFrom nor a per-group allowFrom names anyone, NOBODY is admitted.
+  // Pre-2026.10.27 this combination silently became "open", letting every
+  // sender on a listed public channel trigger the agent (the ClawHub audit
+  // finding that produced this change).
+  const accessGroupPolicy: MeshtasticGroupPolicy =
+    groupPolicy === "open" &&
+    (hasEntries(account.config.groupAllowFrom) || hasEntries(routeGroupAllowFrom))
       ? "allowlist"
       : groupPolicy;
 

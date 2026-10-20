@@ -165,7 +165,7 @@ describe("meshtastic inbound behavior", () => {
     expect(sendReply).toHaveBeenCalled();
   });
 
-  it("dispatches broadcast from an allowlisted channel without a sender list (documented trade-off: allowlist gates channels, not senders)", async () => {
+  it("drops a listed channel with no sender list (fail-closed since 2026.10.27)", async () => {
     const sendReply = vi.fn(async () => undefined);
     setMeshtasticRuntime({
       channel: {
@@ -238,20 +238,7 @@ describe("meshtastic inbound behavior", () => {
       sendReply,
     });
 
-    expect(getMeshtasticRuntime().channel.inbound.run).toHaveBeenCalledWith(
-      expect.objectContaining({
-        channel: "meshtastic",
-        accountId: expect.any(String),
-        raw: expect.objectContaining({
-          text: "И опять привет",
-        }),
-        adapter: expect.objectContaining({
-          ingest: expect.any(Function),
-          classify: expect.any(Function),
-          resolveTurn: expect.any(Function),
-        }),
-      }),
-    );
+    expect(getMeshtasticRuntime().channel.inbound.run).not.toHaveBeenCalled();
     expect(sendReply).not.toHaveBeenCalled();
   });
 
@@ -278,6 +265,29 @@ describe("meshtastic inbound behavior", () => {
     expect(runtime.log).toHaveBeenCalledWith(
       expect.stringContaining("drop channel channel:0 (not allowlisted)"),
     );
+  });
+
+  it("dispatches a listed sender on a listed channel (explicit sender gate)", async () => {
+    const inboundRun = vi.fn(async () => ({ dispatched: true }));
+    installDispatchRuntime(inboundRun);
+
+    await handleMeshtasticInbound({
+      message: createMessage({ isGroup: true, target: "channel:0", text: "hello mesh" }),
+      account: createAccount({
+        config: {
+          dmPolicy: "pairing",
+          groupPolicy: "allowlist",
+          channels: [0],
+          groupAllowFrom: ["!00000002"],
+          groups: { "channel:0": { requireMention: false } },
+        },
+      }),
+      config: { channels: { meshtastic: { host: "192.168.1.10" } } } as CoreConfig,
+      runtime: createRuntimeEnv(),
+      sendReply: vi.fn(async () => undefined),
+    });
+
+    expect(inboundRun).toHaveBeenCalled();
   });
 
   it("drops group messages when groupPolicy is disabled (the default)", async () => {
