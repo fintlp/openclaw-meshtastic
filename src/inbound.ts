@@ -9,6 +9,11 @@ import {
   defineStableChannelIngressIdentity,
 } from "openclaw/plugin-sdk/channel-ingress-runtime";
 import { createChannelPairingController } from "openclaw/plugin-sdk/channel-pairing";
+import {
+  DEFAULT_DURABILITY_CONFIG,
+  meshtasticDedupeKey,
+  type DurabilityStore,
+} from "./durability.js";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import {
   deliverFormattedTextWithAttachments,
@@ -127,6 +132,12 @@ export async function handleMeshtasticInbound(params: {
   myNodeNum?: number | null;
   sendReply?: (target: string, text: string, replyToId?: string) => Promise<void>;
   statusSink?: (patch: { lastInboundAt?: number; lastOutboundAt?: number }) => void;
+  /** Inbound durability store (#8). When present, session-bound frames are logged before dispatch and the cursor advances after the host accepts the turn. */
+  durability?: DurabilityStore | null;
+  /** Set when dispatching from the startup replay path: skips intake logging and binds dispatch marks to the stored event id. */
+  replayOf?: number;
+  /** The stored LOCAL receive time of a replayed event (for the agent-visible replay tag). */
+  replayReceivedAt?: number;
 }): Promise<void> {
   const { message, account, config, runtime } = params;
   const core = getMeshtasticRuntime();
@@ -141,7 +152,9 @@ export async function handleMeshtasticInbound(params: {
     return;
   }
 
-  params.statusSink?.({ lastInboundAt: message.timestamp });
+  params.statusSink?.({
+    lastInboundAt: params.replayOf !== undefined ? Date.now() : message.timestamp,
+  });
 
   const dmPolicy = account.config.dmPolicy ?? "pairing";
   const defaultGroupPolicy = resolveDefaultGroupPolicy(config);
@@ -240,6 +253,42 @@ export async function handleMeshtasticInbound(params: {
   });
   const commandAuthorized = access.commandAccess.authorized;
 
+  // Replay path (#8): admission flipped while we were down (config changed).
+  // The attempt was already counted at claim time; release the claim — the
+  // event goes back to pending and dead-letters at maxDispatchAttempts.
+  if (params.replayOf !== undefined && access.ingress.admission !== "dispatch") {
+    params.durability?.releaseClaim(
+      account.accountId,
+      params.replayOf,
+      `admission flipped on replay (${access.ingress.admission})`,
+    );
+    runtime.log?.(
+      `meshtastic: replay event ${params.replayOf} no longer admitted (${access.ingress.admission}) — claim released`,
+    );
+    return;
+  }
+
+  // Durability duplicate probe (#8): persistent dedupe collapses firmware
+  // retransmissions and reconnect re-deliveries BEFORE any dispatch work.
+  const store = params.durability ?? null;
+  const dedupeKey = meshtasticDedupeKey({
+    senderNodeNum: message.senderNodeNum,
+    packetId: message.messageId,
+  });
+  // m7: a duplicate hit on a COMPLETE row is a drop; a hit on a pending /
+  // inflight row is a redelivery we must dispatch (its first attempt failed).
+  const existingDupe =
+    store && params.replayOf === undefined
+      ? store.findDuplicate(account.accountId, dedupeKey)
+      : null;
+  if (existingDupe && (existingDupe.state === "dispatched" || existingDupe.state === "dead")) {
+    runtime.log?.(
+      `meshtastic: drop duplicate inbound (sender ${message.senderId} packet ${message.messageId})`,
+    );
+    return;
+  }
+  const redeliverEventId = existingDupe?.id;
+
   if (access.ingress.admission === "pairing-required") {
     await pairing.issueChallenge({
       senderId: message.senderId,
@@ -292,6 +341,54 @@ export async function handleMeshtasticInbound(params: {
       runtime.log?.(`meshtastic: drop DM sender ${message.senderId} (dmPolicy=${dmPolicy})`);
     }
     return;
+  }
+
+  // Durability intake + claim (#8): session-bound frames are logged as
+  // admitted (admission is decided above) and claimed with a lease BEFORE any
+  // dispatch work. Attempts count at claim, so process deaths and crash loops
+  // are bounded by maxDispatchAttempts.
+  let durabilityEventId: number | undefined = params.replayOf ?? redeliverEventId;
+  if (store && durabilityEventId === undefined) {
+    const res = store.intake({
+      accountId: account.accountId,
+      dedupeKey,
+      kind: message.isGroup ? "group" : "direct",
+      peerId: message.isGroup ? message.target : message.senderId,
+      senderLabel: message.senderId,
+      senderTs: message.timestamp,
+      body: rawBody,
+      rawJson: JSON.stringify(message),
+    });
+    if (res.duplicate) {
+      runtime.log?.(
+        `meshtastic: drop duplicate inbound (sender ${message.senderId} packet ${message.messageId})`,
+      );
+      return;
+    }
+    if (res.id >= 0) {
+      durabilityEventId = res.id;
+    } else {
+      // Partial store failure (review M-2): dispatch WITHOUT durability rather
+      // than drop — persistence must never be a single point of failure.
+      runtime.log?.("meshtastic: durability intake degraded — dispatching without persistence");
+    }
+  }
+  // Live path claims its event (replay arrives pre-claimed by claimNext —
+  // claiming twice would double-count the attempt).
+  const durCfg = { ...DEFAULT_DURABILITY_CONFIG, ...account.config.durability };
+  if (store && durabilityEventId !== undefined && params.replayOf === undefined) {
+    const verdict = store.claim(
+      account.accountId,
+      durabilityEventId,
+      durCfg.maxDispatchAttempts,
+      durCfg.leaseMs,
+    );
+    if (verdict !== "claimed") {
+      runtime.log?.(
+        `meshtastic: inbound event ${durabilityEventId} not dispatched (claim: ${verdict})`,
+      );
+      return;
+    }
   }
 
   const peerId = message.isGroup ? message.target : message.senderId;
@@ -352,9 +449,26 @@ export async function handleMeshtasticInbound(params: {
     OriginatingTo: `meshtastic:${peerId}`,
     CommandAuthorized: commandAuthorized,
     ReplyToId: message.replyToId,
+    ChannelStructuredContext:
+      params.replayOf !== undefined
+        ? [
+            {
+              label: "Meshtastic Replay",
+              source: "meshtastic",
+              type: "mesh_replay",
+              payload: {
+                replayed: true,
+                receivedAt: params.replayReceivedAt ?? message.timestamp,
+                senderTs: message.timestamp,
+                replayedAt: Date.now(),
+              },
+            },
+          ]
+        : undefined,
   });
 
-  await core.channel.inbound.run({
+  try {
+    await core.channel.inbound.run({
     channel: CHANNEL_ID,
     accountId: account.accountId,
     raw: message,
@@ -412,7 +526,46 @@ export async function handleMeshtasticInbound(params: {
             runtime.error?.(`meshtastic: failed updating session meta: ${String(err)}`);
           },
         },
+        onFinalize: (result: {
+          dispatched: boolean;
+          admission?: { kind?: string };
+          dispatchResult?: { deferredToActiveRun?: "steer" | "followup" } | null;
+        }) => {
+          if (!store || durabilityEventId === undefined) {
+            return;
+          }
+          if (result.dispatchResult?.deferredToActiveRun === "followup") {
+            // Queued behind a busy session: the host has ACCEPTED it into its
+            // follow-up queue (review round-3 m6) — mark dispatched. Residual,
+            // documented: the queue is in-memory, so a host crash before the
+            // drain loses that one follow-up; no plugin can close that gap.
+            runtime.log?.(
+              `meshtastic: event ${durabilityEventId} accepted into the host follow-up queue`,
+            );
+            store.markDispatched(account.accountId, durabilityEventId);
+            return;
+          }
+          if (result.dispatched && result.admission?.kind === "dispatch") {
+            store.markDispatched(account.accountId, durabilityEventId);
+          } else {
+            store.releaseClaim(
+              account.accountId,
+              durabilityEventId,
+              `turn not dispatched (${result.admission?.kind ?? "unknown"})`,
+            );
+          }
+        },
       }),
     },
   });
+  } catch (err) {
+    if (store && durabilityEventId !== undefined) {
+      store.releaseClaim(
+        account.accountId,
+        durabilityEventId,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+    throw err;
+  }
 }

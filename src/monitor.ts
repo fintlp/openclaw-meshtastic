@@ -9,6 +9,7 @@ import {
 import { decryptChannelPacket, expandPsk } from "./crypto.js";
 import { isOutboundEcho, rememberOutboundEcho } from "./echo-dedupe.js";
 import { handleMeshtasticInbound } from "./inbound.js";
+import { DEFAULT_DURABILITY_CONFIG, type DurabilityStore } from "./durability.js";
 import { formatMeshtasticChannelTarget, formatMeshtasticNodeId } from "./normalize.js";
 import { formatMeshtasticEndpoint } from "./transport.js";
 import type { RuntimeEnv } from "./runtime-api.js";
@@ -33,6 +34,8 @@ type MeshtasticMonitorOptions = {
     message: MeshtasticInboundMessage,
     handle: MeshtasticDeviceHandle,
   ) => void | Promise<void>;
+  /** Inbound durability store (#8); replay runs once after connect. */
+  durability?: DurabilityStore | null;
 };
 
 function channelIndexFromPacket(channel: number): number {
@@ -190,6 +193,80 @@ export function monitorMeshtasticProvider(
       ),
     );
 
+    // Shared dispatch path for live intake and durability replay (#8, m4):
+    // one builder, identical params, channel filter applied in both modes.
+    const dmSendReply = async (target: string, text: string, replyToId?: string) => {
+      const { sendMessageMeshtastic } = await import("./send.js");
+      await sendMessageMeshtastic(target, text, {
+        cfg,
+        accountId: account.accountId,
+        replyTo: replyToId,
+        deviceHandle: handle,
+      });
+      rememberOutboundEcho(text);
+      opts.statusSink?.({ lastOutboundAt: Date.now() });
+      core.channel.activity.record({
+        channel: "meshtastic",
+        accountId: account.accountId,
+        direction: "outbound",
+      });
+    };
+
+    const durCfg = { ...DEFAULT_DURABILITY_CONFIG, ...account.config.durability };
+
+    const dispatchNormalized = async (
+      message: MeshtasticInboundMessage,
+      dispatchOpts?: { replayOf?: number; replayReceivedAt?: number; decrypted?: boolean },
+    ): Promise<void> => {
+      if (message.isGroup && !allowedChannels.has(message.meshChannel)) {
+        if (dispatchOpts?.replayOf !== undefined) {
+          opts.durability?.deadLetter(account.accountId, dispatchOpts.replayOf, "channel-not-monitored");
+        } else if (core.logging.shouldLogVerbose()) {
+          logger.debug?.(
+            `[${account.accountId}] skip mesh channel ${message.meshChannel} (not in allowlist)`,
+          );
+        }
+        return;
+      }
+      if (dispatchOpts?.replayOf === undefined) {
+        // console.log, not logger.info: the plugin child logger's info lines
+        // never reach gateway.log (verified live; ctx.log and console.* do —
+        // meshcore#38 pattern). Inbound mesh messages are airtime evidence
+        // and must be auditable. Content redaction
+        // (logInboundMessageContent) is unchanged.
+        console.log(
+          formatInboundLogLine({
+            accountId: account.accountId,
+            message,
+            decrypted: dispatchOpts?.decrypted,
+            logMessageContent,
+          }),
+        );
+        core.channel.activity.record({
+          channel: "meshtastic",
+          accountId: account.accountId,
+          direction: "inbound",
+          at: message.timestamp,
+        });
+        if (opts.onMessage) {
+          await opts.onMessage(message, handle);
+          return;
+        }
+      }
+      await handleMeshtasticInbound({
+        message,
+        account,
+        config: cfg,
+        runtime,
+        myNodeNum: handle.myNodeNum,
+        sendReply: dmSendReply,
+        statusSink: opts.statusSink,
+        durability: opts.durability,
+        replayOf: dispatchOpts?.replayOf,
+        replayReceivedAt: dispatchOpts?.replayReceivedAt,
+      });
+    };
+
     if (account.transport !== "http") {
       unsubscribers.push(
         handle.device.events.onMeshPacket.subscribe(
@@ -248,58 +325,7 @@ export function monitorMeshtasticProvider(
                 if (!message) {
                   return;
                 }
-                if (message.isGroup && !allowedChannels.has(message.meshChannel)) {
-                  return;
-                }
-                // console.log, not logger.info: the plugin child logger's
-                // info lines never reach gateway.log (verified live at the
-                // default 'info' level with no logging override configured —
-                // while ctx.log and console.* lines do appear; meshcore#38
-                // pattern). Inbound mesh messages are airtime evidence and
-                // must be auditable. Content redaction
-                // (logInboundMessageContent) is unchanged.
-                console.log(
-                  formatInboundLogLine({
-                    accountId: account.accountId,
-                    message,
-                    decrypted: true,
-                    logMessageContent,
-                  }),
-                );
-                core.channel.activity.record({
-                  channel: "meshtastic",
-                  accountId: account.accountId,
-                  direction: "inbound",
-                  at: message.timestamp,
-                });
-                if (opts.onMessage) {
-                  await opts.onMessage(message, handle);
-                  return;
-                }
-                await handleMeshtasticInbound({
-                  message,
-                  account,
-                  config: cfg,
-                  runtime,
-                  myNodeNum: handle.myNodeNum,
-                  sendReply: async (target, text, replyToId) => {
-                    const { sendMessageMeshtastic } = await import("./send.js");
-                    await sendMessageMeshtastic(target, text, {
-                      cfg,
-                      accountId: account.accountId,
-                      replyTo: replyToId,
-                      deviceHandle: handle,
-                    });
-                    rememberOutboundEcho(text);
-                    opts.statusSink?.({ lastOutboundAt: Date.now() });
-                    core.channel.activity.record({
-                      channel: "meshtastic",
-                      accountId: account.accountId,
-                      direction: "outbound",
-                    });
-                  },
-                  statusSink: opts.statusSink,
-                });
+                await dispatchNormalized(message, { decrypted: true });
               } catch (err) {
                 const line = `[${account.accountId}] decrypted inbound handler failed: ${String(err)}`;
                 logger.error?.(line);
@@ -326,60 +352,7 @@ export function monitorMeshtasticProvider(
             if (!message) {
               return;
             }
-            if (message.isGroup && !allowedChannels.has(message.meshChannel)) {
-              if (core.logging.shouldLogVerbose()) {
-                logger.debug?.(
-                  `[${account.accountId}] skip mesh channel ${message.meshChannel} (not in allowlist)`,
-                );
-              }
-              return;
-            }
-
-            // console.log, not logger.info — see above (child logger black hole).
-            console.log(
-              formatInboundLogLine({
-                accountId: account.accountId,
-                message,
-                logMessageContent,
-              }),
-            );
-
-            core.channel.activity.record({
-              channel: "meshtastic",
-              accountId: account.accountId,
-              direction: "inbound",
-              at: message.timestamp,
-            });
-
-            if (opts.onMessage) {
-              await opts.onMessage(message, handle);
-              return;
-            }
-
-            await handleMeshtasticInbound({
-              message,
-              account,
-              config: cfg,
-              runtime,
-              myNodeNum: handle.myNodeNum,
-              sendReply: async (target, text, replyToId) => {
-                const { sendMessageMeshtastic } = await import("./send.js");
-                await sendMessageMeshtastic(target, text, {
-                  cfg,
-                  accountId: account.accountId,
-                  replyTo: replyToId,
-                  deviceHandle: handle,
-                });
-                rememberOutboundEcho(text);
-                opts.statusSink?.({ lastOutboundAt: Date.now() });
-                core.channel.activity.record({
-                  channel: "meshtastic",
-                  accountId: account.accountId,
-                  direction: "outbound",
-                });
-              },
-              statusSink: opts.statusSink,
-            });
+            await dispatchNormalized(message);
           } catch (err) {
             const line = `[${account.accountId}] inbound handler failed: ${String(err)}`;
             logger.error?.(line);
@@ -396,10 +369,17 @@ export function monitorMeshtasticProvider(
     // keeps the gateway health-monitor blind and the channel dark
     // indefinitely (meshcore#4 class bug).
     let rejectLifecycle: ((reason: Error) => void) | null = null;
+    // minor 3: resolved by doCleanup so a replayed turn stops waiting on a
+    // dead socket instead of running to the 5-minute cap.
+    let resolveDisconnected: (() => void) | null = null;
+    const disconnectedPromise = new Promise<void>((resolve) => {
+      resolveDisconnected = resolve;
+    });
 
     const doCleanup = () => {
       if (settled) return;
       settled = true;
+      resolveDisconnected?.();
       for (const unsubscribe of unsubscribers) {
         unsubscribe();
       }
@@ -456,6 +436,115 @@ export function monitorMeshtasticProvider(
       `[${account.accountId}] connected to Meshtastic (${account.transport}) at ${formatMeshtasticEndpoint(account)}`,
     );
 
+    // Durability replay (#8): runs AFTER all listeners and the disconnect
+    // handler are registered (review M-3), so an abort or socket loss during
+    // replay is seen immediately. claimNext counts each attempt at claim;
+    // afterId skips rows already tried this pass (review M-1); each event
+    // races the remaining deadline so one slow turn cannot stall startup.
+    if (opts.durability) {
+      const store = opts.durability;
+      opts.statusSink?.({
+        connected: true,
+        lastConnectedAt: Date.now(),
+        lastTransportActivityAt: Date.now(),
+      });
+      const stale = store.sweepStale(account.accountId, durCfg.maxReplayAgeMs);
+      if (stale.length > 0) {
+        runtime.log?.(
+          `[${account.accountId}] durability: ${stale.length} stale pending event(s) dead-lettered (older than maxReplayAgeMs)`,
+        );
+      }
+      const deadline = Date.now() + 5 * 60_000;
+      let claimed = 0;
+      let lastClaimId = 0;
+      let nullStreak = 0;
+      for (;;) {
+        // M1: stop on abort AND on a dropped socket (settled) — replaying over
+        // a dead connection loses replies while marking rows dispatched.
+        if (opts.abortSignal?.aborted || settled) {
+          break;
+        }
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) {
+          runtime.log?.(
+            `[${account.accountId}] durability replay time-capped after ${claimed} event(s); remainder replays next start`,
+          );
+          break;
+        }
+        const ev = store.claimNext(
+          account.accountId,
+          durCfg.maxDispatchAttempts,
+          durCfg.leaseMs,
+          lastClaimId,
+        );
+        if (!ev) {
+          // nit 2: a guard-truncated pass resumes once before declaring empty.
+          nullStreak += 1;
+          if (nullStreak >= 2) {
+            break;
+          }
+          continue;
+        }
+        nullStreak = 0;
+        lastClaimId = ev.id;
+        claimed += 1;
+        let raw: MeshtasticInboundMessage | null = null;
+        try {
+          const rawJson = store.rawJsonOf(ev.id);
+          raw = rawJson ? (JSON.parse(rawJson) as MeshtasticInboundMessage) : null;
+        } catch {
+          raw = null;
+        }
+        // minor 4: unparseable rows dead-letter immediately instead of
+        // looping boots.
+        if (!raw || typeof raw.text !== "string") {
+          store.deadLetter(account.accountId, ev.id, raw ? "not-replayable" : "corrupt-raw");
+          continue;
+        }
+        let onAbortOnce: (() => void) | null = null;
+        const abortPromise = new Promise((resolve) => {
+          if (opts.abortSignal?.aborted || settled) {
+            resolve(undefined);
+            return;
+          }
+          onAbortOnce = () => resolve(undefined);
+          opts.abortSignal?.addEventListener("abort", onAbortOnce, { once: true });
+        });
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            dispatchNormalized(raw, { replayOf: ev.id, replayReceivedAt: ev.receivedAt }),
+            abortPromise,
+            disconnectedPromise,
+            new Promise((resolve) => {
+              timer = setTimeout(resolve, remaining);
+            }),
+          ]);
+        } catch (err) {
+          store.releaseClaim(
+            account.accountId,
+            ev.id,
+            err instanceof Error ? err.message : String(err),
+          );
+        } finally {
+          if (timer !== undefined) {
+            clearTimeout(timer);
+          }
+          if (onAbortOnce) {
+            opts.abortSignal?.removeEventListener("abort", onAbortOnce);
+          }
+        }
+      }
+      if (claimed > 0) {
+        runtime.log?.(`[${account.accountId}] durability replay: ${claimed} event(s) claimed`);
+      }
+      if (opts.abortSignal?.aborted) {
+        runtime.log?.(`[${account.accountId}] durability replay aborted after ${claimed} event(s)`);
+        doCleanup();
+        return { stop: () => {} };
+      }
+    }
+
     // Return a promise that stays pending while connected. It resolves on
     // external abort and rejects on device disconnect — in both cases the
     // gateway's health-monitor can restart the channel.
@@ -469,6 +558,13 @@ export function monitorMeshtasticProvider(
         resolve({ stop: () => {} });
       };
       opts.abortSignal?.addEventListener("abort", onAbort, { once: true });
+
+      // M1: an abort that fired before this point (incl. while durability is
+      // off) must still settle the monitor.
+      if (opts.abortSignal?.aborted && !settled) {
+        onAbort();
+        return;
+      }
 
       // Poll `settled` — if doCleanup() already ran (device disconnected
       // between configure() and this promise construction) reject immediately.

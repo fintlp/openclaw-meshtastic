@@ -6,9 +6,48 @@ This fork (`fintlp/openclaw-meshtastic`) is the maintained line; upstream
 (`skrashevich/openclaw-meshtastic`) has been dormant since May 2026. Fixes
 are offered upstream as PRs. Date-based versioning: `2026.M.P`.
 
-## Unreleased (docs)
+## 2026.10.29 — 2026-10-21
 
-- README compatibility section corrected to the current floor: **OpenClaw ≥ 2026.10.5** (raised in v2026.10.28 with the Async-envelope migration; the manifest has declared it since — the docs lagged).
+Inbound durability (issue #8): **at-least-once** delivery across gateway
+restarts — a port of openclaw-meshcore #48's v2 design (four adversarial
+review rounds), adapted for Meshtastic. Admitted session-bound frames are
+appended to a per-account SQLite event log (`node:sqlite`, no native
+dependency) and claimed with a lease before dispatch; attempts count at
+claim, so a dead process is a counted attempt and crash loops dead-letter at
+`maxDispatchAttempts` (3, logged). Startup maintenance reclaims every
+in-flight row owned by another process (owner-tagged leases), dead-letters
+stale rows (`maxReplayAgeMs`, default 1 h), then replays the pending backlog
+in id order after all listeners are registered (abort-aware, 5-minute cap).
+Dispatch marks land via the host `onFinalize` hook; a follow-up accepted
+into the host follow-up queue (`deferredToActiveRun`) is marked dispatched —
+a host crash before the drain is the documented residual; failures release
+the claim for the next start. Persistent dedupe (sender node number +
+packet id) collapses firmware retransmits and reconnect replays inside a
+**sliding 24 h window on receive time** — no time bucket in the key, so a
+retransmit straddling 00:00 UTC stays one frame, while a rebooted sender
+whose packet-id counter restarted is only shadowed for 24 h, not a month.
+Terminal states blank message bodies at rest (secure-delete + WAL truncate
+checkpoint). Pruning runs at startup and hourly, complete rows only, looping
+until under the 30-day / 50 000-event budget. The store lives per db path
+for the process lifetime and fails open (sticky `degraded` flag) — a store
+error never blocks the live path. Default ON — `durability.enabled: false`
+to opt out (delete the .sqlite + sidecars for a full wipe). Degrades cleanly
+when `node:sqlite` is unavailable (Node < 22.13). Honest limits in the
+README: a restart mid-turn can duplicate a reply; a follow-up queued behind
+a busy session is only as durable as the host process. Closes #8.
+
+Also: state-dir resolution now uses `os.homedir()` instead of the
+`HOME ?? "~"` fallback; README compatibility section corrected to the
+current floor (OpenClaw ≥ 2026.10.5 — the manifest has declared it since
+v2026.10.28; the docs lagged).
+
+**Upgrading?** This release adds a component that is **on by default** and
+stores *pending* inbound message text at rest
+(`state/meshtastic-durability-<accountId>.sqlite`) until each turn completes
+and the body is blanked. If that is not acceptable on your host, set
+`channels.meshtastic.durability.enabled: false` before first start (or after
+stopping the gateway) and delete the `.sqlite`, `-wal`, and `-shm` files.
+No config migration is needed; the store self-creates on first start.
 
 ## 2026.10.28 — 2026-10-20
 
