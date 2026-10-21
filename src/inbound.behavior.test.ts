@@ -1,6 +1,10 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createPluginRuntimeMock } from "openclaw/plugin-sdk/channel-test-helpers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ResolvedMeshtasticAccount } from "./accounts.js";
+import { meshtasticDedupeKey, openDurabilityStore } from "./durability.js";
 import { handleMeshtasticInbound } from "./inbound.js";
 import type { RuntimeEnv } from "./runtime-api.js";
 import { clearMeshtasticRuntime, getMeshtasticRuntime, setMeshtasticRuntime } from "./runtime.js";
@@ -377,4 +381,127 @@ describe("meshtastic inbound behavior", () => {
     expect(inboundRun).toHaveBeenCalled();
   });
 
+});
+
+
+describe("inbound durability (#8, redelivery + duplicate-drop)", () => {
+  it("m7: a plain-DM retry after a failed first dispatch is redelivered, not dropped", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "meshtastic-beh-dur-"));
+    const store = await openDurabilityStore({ dbPath: join(dir, "d.sqlite") });
+    try {
+      const msg = createMessage({ text: "hello", timestamp: 1700000001234 });
+      store!.intake({
+        accountId: "default",
+        dedupeKey: meshtasticDedupeKey({
+          senderNodeNum: msg.senderNodeNum,
+          packetId: msg.messageId,
+        }),
+        kind: "direct",
+        peerId: msg.senderId,
+        senderTs: msg.timestamp,
+        body: "hello",
+        rawJson: JSON.stringify(msg),
+      });
+      const inboundRun = vi.fn(async () => ({ dispatched: true }));
+      installDispatchRuntime(inboundRun);
+      await handleMeshtasticInbound({
+        message: msg,
+        account: createAccount({
+          config: { dmPolicy: "allowlist", allowFrom: ["!00000002"], groupPolicy: "disabled" },
+        }),
+        config: { channels: { meshtastic: { host: "192.168.1.10" } } } as CoreConfig,
+        runtime: createRuntimeEnv(),
+        sendReply: vi.fn(async () => undefined),
+        durability: store,
+      });
+      expect(inboundRun).toHaveBeenCalled();
+    } finally {
+      store?.close();
+    }
+  });
+
+  it("a duplicate of an already-dispatched frame is dropped before any dispatch work", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "meshtastic-beh-dur-"));
+    const store = await openDurabilityStore({ dbPath: join(dir, "d.sqlite") });
+    try {
+      const msg = createMessage({ text: "hello", timestamp: 1700000001234 });
+      const key = meshtasticDedupeKey({
+        senderNodeNum: msg.senderNodeNum,
+        packetId: msg.messageId,
+      });
+      const row = store!.intake({
+        accountId: "default",
+        dedupeKey: key,
+        kind: "direct",
+        peerId: msg.senderId,
+        senderTs: msg.timestamp,
+        body: "hello",
+        rawJson: JSON.stringify(msg),
+      });
+      store!.claim("default", row.id, 3, 60_000);
+      store!.markDispatched("default", row.id);
+      const inboundRun = vi.fn(async () => ({ dispatched: true }));
+      installDispatchRuntime(inboundRun);
+      const runtime = createRuntimeEnv();
+      await handleMeshtasticInbound({
+        message: msg,
+        account: createAccount({
+          config: { dmPolicy: "allowlist", allowFrom: ["!00000002"], groupPolicy: "disabled" },
+        }),
+        config: { channels: { meshtastic: { host: "192.168.1.10" } } } as CoreConfig,
+        runtime,
+        sendReply: vi.fn(async () => undefined),
+        durability: store,
+      });
+      expect(inboundRun).not.toHaveBeenCalled();
+      expect(runtime.log).toHaveBeenCalledWith(expect.stringContaining("drop duplicate inbound"));
+    } finally {
+      store?.close();
+    }
+  });
+
+  it("replay: admission flipped while down releases the claim, no pairing re-challenge", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "meshtastic-beh-dur-"));
+    const store = await openDurabilityStore({ dbPath: join(dir, "d.sqlite") });
+    try {
+      const msg = createMessage({ text: "hello", timestamp: 1700000001234 });
+      const row = store!.intake({
+        accountId: "default",
+        dedupeKey: meshtasticDedupeKey({
+          senderNodeNum: msg.senderNodeNum,
+          packetId: msg.messageId,
+        }),
+        kind: "direct",
+        peerId: msg.senderId,
+        senderTs: msg.timestamp,
+        body: "hello",
+        rawJson: JSON.stringify(msg),
+      });
+      expect(store!.claim("default", row.id, 3, 60_000)).toBe("claimed");
+      // Sender is NOT admitted now (pairing policy, unknown sender).
+      const runtime = createRuntimeEnv();
+      await handleMeshtasticInbound({
+        message: msg,
+        account: createAccount({
+          config: { dmPolicy: "allowlist", allowFrom: ["!99999999"], groupPolicy: "disabled" },
+        }),
+        config: { channels: { meshtastic: { host: "192.168.1.10" } } } as CoreConfig,
+        runtime,
+        sendReply: vi.fn(async () => undefined),
+        durability: store,
+        replayOf: row.id,
+        replayReceivedAt: 1700000001234,
+      });
+      // claim released back to pending with the flip noted; no challenge sent
+      const ev = store!.findDuplicate("default", meshtasticDedupeKey({
+        senderNodeNum: msg.senderNodeNum,
+        packetId: msg.messageId,
+      }));
+      expect(ev?.state).toBe("pending");
+      expect(upsertPairingRequestMock).not.toHaveBeenCalled();
+      expect(runtime.log).toHaveBeenCalledWith(expect.stringContaining("no longer admitted"));
+    } finally {
+      store?.close();
+    }
+  });
 });

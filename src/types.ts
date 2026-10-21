@@ -53,6 +53,17 @@ export type MeshtasticAccountConfig = {
   textChunkLimit?: number;
   /** Outbound flood guard: cap airtime packets per rolling window (defaults: 20/10min DMs, 3/10min group). Refuses with a retry hint when tripped. Set enabled:false to disable. */
   sendRateLimit?: { enabled?: boolean; maxSends?: number; windowMs?: number; groupMaxSends?: number };
+  /** Inbound durability (#8): at-least-once delivery across gateway restarts. Admitted frames are logged locally before dispatch and replayed after a restart. Default ON; set enabled:false to opt out (delete the .sqlite + sidecars when opting out). */
+  durability?: {
+    enabled?: boolean;
+    retentionDays?: number;
+    maxEvents?: number;
+    pruneBatch?: number;
+    maxReplayAgeMs?: number;
+    maxDispatchAttempts?: number;
+    leaseMs?: number;
+    dbPath?: string;
+  };
   /** When true, inbound info logs include up to 80 characters of message text (default: metadata only). */
   logInboundMessageContent?: boolean;
   chunkMode?: "length" | "newline";

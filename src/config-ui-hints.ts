@@ -53,6 +53,10 @@ export const meshtasticChannelConfigUiHints = {
     label: "Meshtastic Send Rate Limit",
     help: "Flood guard: caps outbound airtime packets per rolling window (default 20 per 10 minutes for DMs, 3 for group channels). Refuses with a retry hint when tripped. Set enabled:false to disable.",
   },
+  durability: {
+    label: "Inbound Durability",
+    help: "At-least-once inbound delivery across gateway restarts (default on, no setup). Admitted frames are logged locally before dispatch and replayed after a restart — updates and crashes no longer eat messages; a restart mid-turn can duplicate a reply. Pending bodies are blanked at terminal states. Disable only if you cannot accept a pending-body copy at rest (delete the .sqlite + sidecars when opting out).",
+  },
   logInboundMessageContent: {
     label: "Log Inbound Message Content",
     help: "When true, Gateway logs include up to 80 characters of inbound mesh text. Default is false (metadata only: sender, target, message id, length).",
