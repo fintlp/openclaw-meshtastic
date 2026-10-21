@@ -66,6 +66,30 @@ A second structural rail caps total output: the **flood guard** budgets outbound
 
 If your node advertises a GPS position, that position is broadcast to every node in range — publish one you are comfortable sharing with strangers.
 
+## Inbound durability (on by default)
+
+**Why this exists.** A mesh message that reaches your gateway but dies in a restart is gone — the sender's radio got no NAK, they think you read it, you never see it. That used to happen on every OpenClaw update, every config reload, every crash at the wrong second. Durability (issue #8) closes that gap: **frames admitted for an agent turn are logged before dispatch and replayed after a restart — at-least-once between the radio and the agent.**
+
+**Use cases it covers:**
+
+- **Updates and restarts mid-conversation.** A DM arrives, the gateway restarts for an update seconds later — after boot, undispatched messages are replayed to the agent in log order.
+- **Crash recovery.** Frames received but not yet dispatched are re-delivered on the next start instead of vanishing. A turn that was running when the process died counts as an attempt and is retried (bounded — see below), so a crash loop cannot replay forever.
+- **Sender retries.** Nodes retransmit when an acknowledgement is lost, and a reconnecting gateway re-hears frames. Persistent dedupe (sender node number + packet id, sliding 24 h window) collapses those re-deliveries into one turn, so a flaky link does not produce duplicate answers.
+
+**The honest limits (read these before relying on it):**
+
+- **At-least-once, not exactly-once.** A restart while the agent is mid-turn can produce a *duplicate* reply when the event replays. On a shared medium, that is the right trade — a duplicated answer beats a lost question.
+- **A queued follow-up is only as durable as the host process.** When the peer's session is busy, the host accepts the message into its in-memory follow-up queue (`deferredToActiveRun`) and the plugin marks it delivered — the queue belongs to the host from that point. A host crash before the drain loses that one follow-up; no plugin can close that gap.
+- **Replays are not fresh turns.** Anything older than `maxReplayAgeMs` (default **1 hour**) is dead-lettered as stale instead of replayed — a day-old "open the garage" must not fire on Tuesday's reboot. Replayed turns are tagged for the agent with their original receive time.
+
+**What it does not cover** (honest scope): while the gateway is disconnected from the node, nothing is *received* — a gateway that is down for hours loses messages at the radio layer, before this feature ever sees them.
+
+**Setup: none.** It is on by default and needs no configuration. The event log lives at `state/meshtastic-durability-<accountId>.sqlite` (SQLite WAL, no native dependency — requires Node ≥ 22.13; older runtimes fall back to pre-durability behavior with one log line). Opt out with `durability.enabled: false` — and delete the `.sqlite` file and its `-wal`/`-shm` sidecars if you do not want the kept copy. Health and replay activity are reported in the Gateway log (`durability replay: N event(s) claimed`, dead-letter and prune lines).
+
+How it works, briefly: admitted frames are appended to the log and claimed with a lease *before* dispatch; the attempt counts at claim, so a dead process is a counted attempt, and a running turn keeps its lease renewed. On startup, every in-flight row owned by another process is reclaimed, stale rows are dead-lettered, and the pending backlog replays in id order (abort- and disconnect-aware, time-capped, after all listeners are registered). Dispatch failures release the claim and retry next start; `maxDispatchAttempts` (3) dead-letters with a log line. Pruning removes only completed rows — never pending work — at startup and hourly, on a 30-day / 50 000-event budget, looping until under budget. Admission drops and pairing challenges stay out of the store (the runtime log is their record); admitted channel traffic (`groupPolicy` open/allowlist) is logged like DMs. Fields: `enabled`, `retentionDays`, `maxEvents`, `pruneBatch`, `maxReplayAgeMs`, `maxDispatchAttempts`, `leaseMs`, `dbPath`.
+
+**Exposure note.** The log keeps message bodies only while work is pending; dispatched and dead rows are blanked, leaving dedupe keys and metadata. Pending bodies share the exposure class of the host session store. Wire encryption is unchanged; the log holds no keys.
+
 ## Privacy and logging
 
 Inbound mesh traffic can include personal or operational content. By default this plugin logs **metadata only** (account, DM vs group, sender id, target, message id, text length) — not message bodies.
@@ -83,6 +107,8 @@ To include up to 80 characters of inbound text in Gateway logs (debugging only),
 ```
 
 Review who can read Gateway logs and how long they are retained before enabling this. OpenClaw verbose logging (`shouldLogVerbose`) does not change this behavior.
+
+Separately from logging: the **inbound durability store** (on by default, see above) keeps a local SQLite copy of each *admitted, not yet answered* message body at rest until the turn completes — then blanks it. If storing pending message text at rest is not acceptable on your host, set `durability.enabled: false` and delete the `state/meshtastic-durability-*.sqlite*` files.
 
 ## Install
 
