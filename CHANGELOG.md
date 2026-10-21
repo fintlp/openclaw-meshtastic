@@ -6,6 +6,10 @@ This fork (`fintlp/openclaw-meshtastic`) is the maintained line; upstream
 (`skrashevich/openclaw-meshtastic`) has been dormant since May 2026. Fixes
 are offered upstream as PRs. Date-based versioning: `2026.M.P`.
 
+## Unreleased (docs)
+
+- README compatibility section corrected to the current floor: **OpenClaw ≥ 2026.10.5** (raised in v2026.10.28 with the Async-envelope migration; the manifest has declared it since — the docs lagged).
+
 ## 2026.10.28 — 2026-10-20
 
 Inbound envelope migrated to the async Plugin SDK surface
