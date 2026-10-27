@@ -246,8 +246,17 @@ Inbound mesh text messages expose `packet.id`. Outbound replies can pass `replyI
 
 ## Outbound chunking
 
-Meshtastic mesh text has a practical size limit (~200 characters). OpenClaw splits long
-agent replies into chunks (`textChunkLimit`, default 200). Chunk mode can be `length`
+Mesh text frames are byte-limited on the radio: the Data payload is at most 233 bytes
+and encrypted DMs lose 12 more to PKC overhead, so **221 bytes** is the hard cap per
+part — oversized parts are refused by the firmware (`Routing_Error.TOO_LARGE`), not
+truncated. OpenClaw splits long agent replies to a UTF-8 **byte** budget
+(`textChunkLimit`, default 200 bytes; a configured value above 221 is clamped to 221
+with a one-time log note — the schema range 40..500 still validates existing configs).
+Whitespace boundaries are preferred; hard splits (no-space scripts) happen only at
+grapheme cluster boundaries, so combined characters (emoji sequences, flags, niqqud,
+tashkeel, decomposed accents) never break across parts. A radio refusal of a part
+fails the send visibly instead of reporting success. Host pre-chunked 200-character
+pieces are re-split to the byte budget on the way out. Chunk mode can be `length`
 (default) or `newline` (split on paragraph boundaries).
 
 ## Probe and status
@@ -307,7 +316,7 @@ This plugin supports both via official transports; you are not limited to a sing
 | `historyLimit`   | integer  | —             | Group history limit                    |
 | `dmHistoryLimit` | integer  | —             | DM history limit                       |
 | `contextVisibility` | string | `"all"`      | `all`, `allowlist`, or `allowlist_quote` |
-| `textChunkLimit` | number   | `200`         | Outbound chunk size                    |
+| `textChunkLimit` | number   | `200`         | Outbound chunk size in UTF-8 **bytes** (capped at 221, the radio payload limit) |
 | `chunkMode`      | string   | `"length"`    | `length` or `newline`                  |
 | `blockStreaming` | boolean  | —             | Enable streaming block output          |
 | `blockStreamingCoalesce` | object | —     | Streaming coalesce settings            |

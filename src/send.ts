@@ -40,6 +40,7 @@ type SendMeshtasticResult = {
   receipt: MessageReceipt;
 };
 
+/** Default chunk size in UTF-8 BYTES (was: code points before issue #17). */
 const DEFAULT_CHUNK_LIMIT = 200;
 const DEFAULT_SEND_ACK_WAIT_MS = 5_000;
 
@@ -68,19 +69,127 @@ function recordMeshtasticOutboundActivity(accountId: string): void {
   }
 }
 
-function chunkText(text: string, limit: number): string[] {
+// --- Outbound text chunking (issue #17) -------------------------------------
+//
+// The radio limit is in BYTES: the Data payload is at most 233 bytes
+// (DATA_PAYLOAD_LEN) and encrypted DMs lose another 12
+// (MESHTASTIC_PKC_OVERHEAD), so 221. The firmware refuses oversized packets
+// with Routing_Error.TOO_LARGE instead of truncating them, so every chunk
+// must fit the byte cap — the old code-point split let non-ASCII replies
+// produce packets the radio refused, silently dropping parts of the reply.
+
+const encoder = new TextEncoder();
+const utf8Bytes = (s: string): number => encoder.encode(s).length;
+
+/** Hard payload cap for one text part: DATA_PAYLOAD_LEN(233) − PKC overhead(12). */
+export const MESHTASTIC_TEXT_PAYLOAD_LIMIT = 221;
+
+let clampWarned = false;
+
+/**
+ * Effective chunk limit in UTF-8 bytes. The schema still accepts 40..500 so
+ * existing configs keep validating, but anything above the radio cap is
+ * clamped (and logged once per process).
+ */
+export function resolveChunkLimitBytes(configured?: number): number {
+  const requested = configured ?? DEFAULT_CHUNK_LIMIT;
+  if (requested > MESHTASTIC_TEXT_PAYLOAD_LIMIT) {
+    if (!clampWarned) {
+      clampWarned = true;
+      console.warn(
+        "[meshtastic] textChunkLimit " +
+          String(requested) +
+          " exceeds the radio payload cap; clamping to " +
+          String(MESHTASTIC_TEXT_PAYLOAD_LIMIT) +
+          " bytes",
+      );
+    }
+    return MESHTASTIC_TEXT_PAYLOAD_LIMIT;
+  }
+  return requested;
+}
+
+let cachedGraphemeSegmenter: Intl.Segmenter | undefined;
+let segmenterFallbackWarned = false;
+
+/**
+ * Grapheme cluster segmenter, or undefined when the runtime has no
+ * Intl.Segmenter — then the hard split falls back to code points (logged
+ * once) instead of crashing. Availability is re-checked per call so tests
+ * can stub it.
+ */
+function getGraphemeSegmenter(): Intl.Segmenter | undefined {
+  if (typeof Intl === "undefined" || typeof Intl.Segmenter !== "function") {
+    if (!segmenterFallbackWarned) {
+      segmenterFallbackWarned = true;
+      console.warn(
+        "[meshtastic] Intl.Segmenter unavailable — chunk hard splits fall back to code points",
+      );
+    }
+    return undefined;
+  }
+  cachedGraphemeSegmenter ??= new Intl.Segmenter(undefined, { granularity: "grapheme" });
+  return cachedGraphemeSegmenter;
+}
+
+/**
+ * Chunk outbound text to a UTF-8 BYTE budget: whitespace boundaries
+ * preferred, hard splits only at grapheme cluster boundaries (never inside a
+ * combined character); a single grapheme larger than the limit falls back to
+ * code points. Validated against the shared Unicode corpus for every limit
+ * 40..221: no chunk over the limit, no content lost, no broken grapheme.
+ */
+export function chunkUtf8(text: string, limit: number): string[] {
   const trimmed = text.trim();
   if (!trimmed) {
     return [];
   }
-  const chars = Array.from(trimmed);
-  if (chars.length <= limit) {
+  if (utf8Bytes(trimmed) <= limit) {
     return [trimmed];
   }
   const chunks: string[] = [];
-  for (let cursor = 0; cursor < chars.length; cursor += limit) {
-    chunks.push(chars.slice(cursor, cursor + limit).join(""));
+  let current = "";
+  let currentBytes = 0;
+  const push = () => {
+    const part = current.trim();
+    if (part) {
+      chunks.push(part);
+    }
+    current = "";
+    currentBytes = 0;
+  };
+  const add = (unit: string, unitBytes: number) => {
+    if (currentBytes > 0 && currentBytes + unitBytes > limit) {
+      push();
+    }
+    current += unit;
+    currentBytes += unitBytes;
+  };
+  const segmenter = getGraphemeSegmenter();
+  for (const piece of trimmed.split(/(\s+)/)) {
+    const pieceBytes = utf8Bytes(piece);
+    if (pieceBytes <= limit) {
+      add(piece, pieceBytes);
+      continue;
+    }
+    if (segmenter) {
+      for (const { segment } of segmenter.segment(piece)) {
+        const segmentBytes = utf8Bytes(segment);
+        if (segmentBytes <= limit) {
+          add(segment, segmentBytes);
+        } else {
+          for (const codePoint of segment) {
+            add(codePoint, utf8Bytes(codePoint));
+          }
+        }
+      }
+    } else {
+      for (const codePoint of piece) {
+        add(codePoint, utf8Bytes(codePoint));
+      }
+    }
   }
+  push();
   return chunks;
 }
 
@@ -121,6 +230,45 @@ function parseReplyPacketId(replyTo?: string): number | undefined {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
+// @meshtastic/core rejects a queued packet with a plain {id, error} object —
+// never an Error — so a routing refusal (e.g. Routing_Error.TOO_LARGE for an
+// oversized part) would escape upstream as an opaque object. Convert it into
+// a named, visible failure instead (issue #17).
+const ROUTING_ERROR_NAMES: Record<number, string> = {
+  0: "NONE",
+  1: "NO_ROUTE",
+  2: "GOT_NAK",
+  3: "TIMEOUT",
+  4: "NO_INTERFACE",
+  5: "MAX_RETRANSMIT",
+  6: "NO_CHANNEL",
+  7: "TOO_LARGE",
+  8: "NO_RESPONSE",
+  9: "DUTY_CYCLE_LIMIT",
+  32: "BAD_REQUEST",
+  33: "NOT_AUTHORIZED",
+  34: "PKI_FAILED",
+  35: "PKI_UNKNOWN_PUBKEY",
+  36: "ADMIN_BAD_SESSION_KEY",
+  37: "ADMIN_PUBLIC_KEY_UNAUTHORIZED",
+};
+
+function describeRoutingError(error: unknown): Error {
+  if (error && typeof error === "object" && "error" in error) {
+    const routing = error as { id?: unknown; error?: unknown };
+    const code = typeof routing.error === "number" ? routing.error : -1;
+    const name = ROUTING_ERROR_NAMES[code] ?? "code " + String(code);
+    return new Error(
+      "Meshtastic send refused by the radio: Routing_Error." +
+        name +
+        " (packet " +
+        String(routing.id ?? "?") +
+        ") — the part was not sent",
+    );
+  }
+  return error instanceof Error ? error : new Error(String(error));
+}
+
 async function waitForMeshtasticSend(params: {
   send: Promise<number>;
   device: MeshtasticSendDevice;
@@ -131,7 +279,9 @@ async function waitForMeshtasticSend(params: {
 
   try {
     return await Promise.race([
-      params.send,
+      params.send.catch((error: unknown) => {
+        throw describeRoutingError(error);
+      }),
       new Promise<number>((resolve) => {
         timer = setTimeout(() => {
           resolve(resolveLatestQueuedPacketId(params.device) ?? queuedPacketId ?? 0);
@@ -229,8 +379,7 @@ export async function sendMessageMeshtastic(
         "Set channels.meshtastic.groupTransmit=true to opt in to group transmission.",
     );
   }
-  const chunkLimit = account.config.textChunkLimit ?? DEFAULT_CHUNK_LIMIT;
-  const chunks = chunkText(text, chunkLimit);
+  const chunks = chunkUtf8(text, resolveChunkLimitBytes(account.config.textChunkLimit));
   if (chunks.length === 0) {
     throw new Error("Message must be non-empty for Meshtastic sends");
   }
