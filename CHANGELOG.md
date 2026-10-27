@@ -6,6 +6,33 @@ This fork (`fintlp/openclaw-meshtastic`) is the maintained line; upstream
 (`skrashevich/openclaw-meshtastic`) has been dormant since May 2026. Fixes
 are offered upstream as PRs. Date-based versioning: `2026.M.P`.
 
+## Unreleased
+
+Node book (issue #15): the plugin now keeps every node the radio knows in
+`state/meshtastic-nodes.json` (named accounts: `meshtastic-nodes.<accountId>.json`),
+for agent questions like "who is on the mesh?" and "where is node X?", and
+for the new node map recipe. Passive, zero airtime, no new config.
+
+- Filled from the node database the radio replays on connect (names, role,
+  hardware, last position, the radio's own last-heard time) and kept current
+  by live traffic (`lastHeard`, SNR, hops from any packet; positions and
+  names from position and user packets).
+- `lastHeard` is only taken from the radio's node database or a live
+  packet's rxTime. The library stamps replayed position and user events with
+  the current time, so those never count as "heard".
+- Older positions (by the node's own clock) never overwrite newer ones;
+  `precisionBits` is kept so coarsened channel positions can be shown as
+  approximate. Hardware or roles the bundled library does not know yet are
+  kept as `model_<n>` / `role_<n>` (the Heltec V4 shows as a number with
+  @meshtastic/core 2.6.7).
+- Capped at 500 nodes (least recently heard evicted, never the gateway's own
+  node); written atomically with mode 0600, throttled to once a minute and
+  flushed on channel stop.
+- Subscribes only to events the device exposes, and handler errors are
+  contained, so the node book can never break inbound message handling.
+- Docs: docs/meshtastic.md "Node book" with the geojson.io node map recipe;
+  README and the meshtastic-connect skill updated.
+
 ## 2026.10.29 — 2026-10-21
 
 Inbound durability (issue #8): **at-least-once** delivery across gateway

@@ -184,15 +184,19 @@ describe("monitorMeshtasticProvider logging routes (fork#1)", () => {
     expect(subs.onChannelPacket).toHaveLength(1);
     subs.onChannelPacket[0]!({ index: 0, settings: { psk: new Uint8Array([1]) } } as never);
 
-    expect(subs.onMeshPacket).toHaveLength(1);
-    subs.onMeshPacket[0]!({
-      id: 9,
-      from: 456,
-      to: 123,
-      channel: 0,
-      rxTime: 0,
-      payloadVariant: { case: "encrypted", value: new Uint8Array([9, 9, 9]) },
-    } as never);
+    // Two subscribers since #15: the node book and the decrypt path. Dispatch
+    // to all of them, as the real event dispatcher does.
+    expect(subs.onMeshPacket).toHaveLength(2);
+    for (const onMeshPacket of subs.onMeshPacket) {
+      onMeshPacket({
+        id: 9,
+        from: 456,
+        to: 123,
+        channel: 0,
+        rxTime: 0,
+        payloadVariant: { case: "encrypted", value: new Uint8Array([9, 9, 9]) },
+      } as never);
+    }
 
     await vi.waitFor(() => {
       expect(consoleLogSpy).toHaveBeenCalledWith(

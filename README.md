@@ -10,6 +10,7 @@
 - **Emergency / backup channel.** When the internet dies, the mesh doesn't. A node on your LAN keeps your agent reachable when everything else is dark.
 - **Unattended-site monitor.** Put a node somewhere remote — attic, shed, mountain hut with a solar panel — and ask it how it's doing. Meshtastic's telemetry (battery, voltage, channel utilization) rides the same mesh as the chat.
 - **Field-expedition comms hub.** A gateway at base camp, handhelds in the field. Everyone DMs the hub; the hub answers — weather, schedules, "where is everybody."
+- **Node map on demand.** Ask "show me the mesh" on WhatsApp or Telegram and get a link that opens a map of every node your radio knows, with role and last heard. Zero airtime: the plugin keeps a node book file, your agent turns it into a geojson.io link (docs/meshtastic.md, "Node book").
 - **Mesh-community bot.** A pairing-gated assistant on your local mesh. New contacts get a pairing challenge, you approve the ones you know, and the defaults keep it from ever becoming airtime spam.
 
 Meshtastic is the largest LoRa mesh ecosystem there is — cheap hardware, phone apps for every platform, an enormous community. This plugin deliberately talks to your node the way the official apps do (protobuf over TCP/HTTP/serial), not through MQTT or any broker. Your messages never leave your LAN except over the radio itself.
