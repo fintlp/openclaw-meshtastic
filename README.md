@@ -48,7 +48,8 @@ Five minutes of [docs/meshtastic.md](docs/meshtastic.md) saves the evening.
 - **Mesh broadcast channels:** per-channel group policy (allowlist by default) — plus a code-level guard: channel replies stay **refused in the send path** until you set `groupTransmit: true`. More on that choice below.
 - **Three official transports:** TCP (4403, default), HTTP (node API), USB serial.
 - **Client-side AES-CTR decryption** for TCP/serial — encrypted mesh traffic works out of the box.
-- **Reply-to threading, outbound chunking, multi-account, multi-agent binding.**
+- **Reply-to threading, multi-account, multi-agent binding.**
+- **Byte-accurate outbound chunking.** Long replies are split to a UTF-8 **byte** budget (`textChunkLimit`, default 200 bytes) and capped at the 221-byte radio payload limit — larger configured values are clamped with a one-time log note. Whitespace boundaries are preferred and hard splits happen only at grapheme clusters, so combined characters (emoji sequences, flags, niqqud, tashkeel, decomposed accents) never break across parts.
 
 ## Safety by default: an agent with a transmitter
 
