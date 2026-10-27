@@ -6,6 +6,31 @@ This fork (`fintlp/openclaw-meshtastic`) is the maintained line; upstream
 (`skrashevich/openclaw-meshtastic`) has been dormant since May 2026. Fixes
 are offered upstream as PRs. Date-based versioning: `2026.M.P`.
 
+## Unreleased
+
+Fixed
+
+- **Outbound chunking counted characters, not bytes — non-ASCII replies lost
+  parts on air** (#17). `chunkText` split every 200 code points while the
+  radio limit is in bytes (Data payload 233, encrypted DMs lose 12 to PKC
+  overhead, so 221), and the firmware refuses oversized packets with
+  `Routing_Error.TOO_LARGE` instead of truncating them. French, Polish,
+  Czech, Hungarian, Greek, Russian, Hebrew, Arabic and Chinese replies
+  routinely produced refused parts. Chunking is now by UTF-8 bytes with
+  whitespace preferred and hard splits only at grapheme cluster boundaries
+  (a single oversized grapheme falls back to code points; if
+  `Intl.Segmenter` is unavailable the split falls back to code points with a
+  one-time log note). **`textChunkLimit` is now a byte limit** (default 200
+  bytes); the schema range 40..500 still validates existing configs, and
+  values above 221 are clamped to the radio cap with a one-time log note.
+  The host pre-chunker's 200-character pieces are re-split to the byte
+  budget on the way out, and `sendRateLimit` counts the byte-chunked packets
+  (whole-message refusal unchanged). A routing-error answer from the radio
+  (e.g. TOO_LARGE) now fails the send visibly with the error name instead of
+  escaping as an opaque object. Corpus-swept (shared Unicode corpus with
+  openclaw-meshcore) for every limit 40..221: no chunk over the limit, no
+  content lost, no broken grapheme. Live mesh verification pending.
+
 ## 2026.10.29 — 2026-10-21
 
 Inbound durability (issue #8): **at-least-once** delivery across gateway
