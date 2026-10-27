@@ -59,6 +59,10 @@ openclaw channels add meshtastic --transport tcp --host 192.168.1.10
 1. `openclaw channels status --probe` → meshtastic ok.
 2. Self-test: DM the node's `!id` (shown by the wizard) from a second device or phone app. Expect the agent's reply within ~a minute — LoRa is slow, that is normal.
 
+## Node map on demand (once connected)
+
+The plugin writes `~/.openclaw/state/meshtastic-nodes.json` (named accounts: `.<accountId>.json`): every known node with name, role, `lat`/`lon` (when shared), `lastHeard` (epoch s), `precisionBits`, `self`. For "show me the mesh": keep nodes with lat/lon, build a GeoJSON FeatureCollection (coordinates `[lon, lat]`), reply with `https://geojson.io/#data=data:application/json,<encodeURIComponent(json)>`. Zero airtime. Owner only, never in reply to a mesh DM session. Full recipe: docs/meshtastic.md, "Node book".
+
 ## Maintenance & support
 
 Maintained line: `fintlp/openclaw-meshtastic` (fork of the dormant skrashevich original). Issues: https://github.com/fintlp/openclaw-meshtastic/issues

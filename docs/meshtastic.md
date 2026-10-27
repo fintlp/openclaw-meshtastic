@@ -258,6 +258,96 @@ agent replies into chunks (`textChunkLimit`, default 200). Chunk mode can be `le
 - **tcp**: `@meshtastic/transport-node` connect to `host:4403`
 - **serial**: `@meshtastic/transport-node-serial` open on `serialPath`
 
+## Node book
+
+The plugin keeps a list of every node the radio knows and writes it to
+`~/.openclaw/state/meshtastic-nodes.json` (named accounts:
+`meshtastic-nodes.<accountId>.json`). It is passive and costs no airtime:
+
+- On every connect the radio replays its node database; each entry brings
+  names, role, hardware, last known position and the radio's own
+  "last heard" time. So the file is complete shortly after the first connect,
+  not only once nodes happen to send new positions.
+- Between connects, live traffic keeps it current: any packet from a node
+  updates `lastHeard`, SNR and hop count; position and user packets update
+  position and names.
+
+Writes are throttled to one per minute and flushed when the channel stops.
+The list is capped at 500 nodes (least recently heard dropped first, never
+your own node). Nothing else in the plugin reads it; it exists for your agent.
+
+```json
+{
+  "version": 1,
+  "generatedAt": "2026-10-27T18:00:00.000Z",
+  "accountId": "default",
+  "selfId": "!a1b2c3d4",
+  "totalNodes": 2,
+  "withPosition": 2,
+  "nodes": [
+    { "id": "!a1b2c3d4", "num": 2712847316, "name": "Home Gateway", "shortName": "HOME",
+      "role": "client", "hwModel": "heltec_v3", "self": true,
+      "lat": 47.07090, "lon": 15.43830, "lastHeard": 1793120000, "viaMqtt": false },
+    { "id": "!0badcafe", "num": 195939070, "name": "Hilltop Router", "shortName": "HILL",
+      "role": "router", "hwModel": "rak4631", "self": false,
+      "lat": 47.19830, "lon": 15.46500, "precisionBits": 13,
+      "lastHeard": 1793118200, "snr": 6.25, "hopsAway": 1, "viaMqtt": false }
+  ]
+}
+```
+
+Fields worth knowing:
+
+- `lastHeard`: epoch seconds, `0` when unknown. It only ever comes from the
+  radio's own node database or from a live packet, never from the time a
+  replayed record arrived, so it says when the node was really last heard.
+- `lat` / `lon`: decimal degrees, present only when the node shares a
+  position. `precisionBits` below 32 means the channel deliberately coarsened
+  it (from tens of metres at 19 bits to about 3 km at 13 and over 20 km at
+  10): treat it as an area, not a point.
+- `viaMqtt: true`: heard through an MQTT bridge, not over the air.
+- `role` / `hwModel`: lower-case enum names. Hardware newer than the bundled
+  Meshtastic library shows as `model_<n>` (the Heltec V4 does with
+  @meshtastic/core 2.6.7), an unknown role as `role_<n>`.
+
+**Privacy.** The file holds other people's positions (written with mode
+0600). Keep it out of shared folders, and do not let mesh DM sessions read it
+for strangers (see "Multi-agent setup" for a restricted mesh agent).
+
+### Recipe: node map on demand
+
+Ask your agent "show me the mesh" on WhatsApp or Telegram and get back a link
+that opens a map of all positioned nodes. The map is drawn by
+[geojson.io](https://geojson.io) in the browser; no new modules, no image
+rendering, zero airtime.
+
+1. Read `meshtastic-nodes.json` for the account.
+2. Keep nodes that have `lat` and `lon`.
+3. The node with `self: true` is the gateway.
+4. Mark nodes with `lastHeard` older than 7 days (or `0`) as stale, nodes with
+   `precisionBits` below 32 as approximate, and `viaMqtt: true` as "via MQTT".
+5. Build a GeoJSON `FeatureCollection` of `Point` features with coordinates
+   `[lon, lat]` (longitude first). Properties: `name`, `role`, `last heard`
+   and `marker-color` (gateway `#2563eb`, router and repeater roles
+   `#dc2626`, client roles `#16a34a`, tracker and sensor `#d97706`).
+6. Link: `https://geojson.io/#data=data:application/json,` followed by
+   `encodeURIComponent(JSON.stringify(collection))`.
+7. Reply with the link and a one-line summary ("12 nodes, 3 routers, 2 stale").
+
+- **Can:** show every node the radio has a position for, with role and age.
+- **Cannot:** go back over LoRa (the link is far longer than one message);
+  show which nodes hear each other (that needs traceroutes, which cost
+  airtime); verify positions, which every node reports about itself.
+- **Privacy:** the map data sits after the `#`, which browsers never send to
+  the geojson.io server; the page decodes it locally. Basemap tiles still come
+  from a tile server, which sees the map area. Anyone with the link sees the
+  nodes, including your own, so send it to the owner only and never in reply
+  to a mesh DM session.
+
+The same recipe exists for MeshCore (openclaw-meshcore, docs/USE-CASES.md,
+recipe 7); both lists use the same field names, so one instruction can draw
+both meshes on one map.
+
 ## Troubleshooting
 
 ### Probe fails / no inbound messages
