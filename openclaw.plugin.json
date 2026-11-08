@@ -335,6 +335,9 @@
             },
             "additionalProperties": false
           },
+          "logInboundMessageContent": {
+            "type": "boolean"
+          },
           "durability": {
             "type": "object",
             "properties": {
@@ -376,9 +379,6 @@
               }
             },
             "additionalProperties": false
-          },
-          "logInboundMessageContent": {
-            "type": "boolean"
           },
           "accounts": {
             "type": "object",
@@ -699,6 +699,9 @@
                   },
                   "additionalProperties": false
                 },
+                "logInboundMessageContent": {
+                  "type": "boolean"
+                },
                 "durability": {
                   "type": "object",
                   "properties": {
@@ -740,9 +743,6 @@
                     }
                   },
                   "additionalProperties": false
-                },
-                "logInboundMessageContent": {
-                  "type": "boolean"
                 }
               },
               "required": [

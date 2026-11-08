@@ -2,7 +2,6 @@ import {
   createMessageReceiptFromOutboundResults,
   type MessageReceipt,
 } from "openclaw/plugin-sdk/channel-outbound";
-import { requireRuntimeConfig } from "openclaw/plugin-sdk/plugin-config-runtime";
 import { resolveMeshtasticAccount } from "./accounts.js";
 import {
   connectMeshtasticDevice,
@@ -185,7 +184,14 @@ export async function sendMessageMeshtastic(
   text: string,
   opts: SendMeshtasticOptions,
 ): Promise<SendMeshtasticResult> {
-  const cfg = requireRuntimeConfig(opts.cfg, "Meshtastic send") as CoreConfig;
+  // Same check as the deprecated SDK helper requireRuntimeConfig
+  // (openclaw/plugin-sdk/plugin-config-runtime, removal after 2026-12-01).
+  if (!opts.cfg) {
+    throw new Error(
+      "Meshtastic send requires a resolved runtime config. Load and resolve config at the command or gateway boundary, then pass cfg through the runtime path.",
+    );
+  }
+  const cfg: CoreConfig = opts.cfg;
   const account = resolveMeshtasticAccount({
     cfg,
     accountId: opts.accountId,
