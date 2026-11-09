@@ -380,6 +380,11 @@ export async function sendMessageMeshtastic(
     );
   }
   if (isMeshtasticGroupTarget(target) && account.config.groupTransmit !== true) {
+    // One log line per refusal (issue #21): the throw alone is silent in
+    // host logs when the caller swallows it.
+    console.warn(
+      `[${account.accountId}] meshtastic group send refused (groupTransmit disabled): ${target} — receive-only (LoRa airtime rule).`,
+    );
     throw new Error(
       `Meshtastic group sends are disabled by default: ${target} is receive-only (LoRa airtime rule). ` +
         "Set channels.meshtastic.groupTransmit=true to opt in to group transmission.",

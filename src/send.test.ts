@@ -95,13 +95,21 @@ describe("sendMessageMeshtastic", () => {
     };
     getMeshtasticDeviceMock.mockReturnValue(handle);
 
-    await expect(
-      sendMessageMeshtastic("channel:0", "broadcast forbidden", {
-        cfg: createConfig({ groupTransmit: false }),
-      }),
-    ).rejects.toThrow(/receive-only/);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      await expect(
+        sendMessageMeshtastic("channel:0", "broadcast forbidden", {
+          cfg: createConfig({ groupTransmit: false }),
+        }),
+      ).rejects.toThrow(/receive-only/);
 
-    expect(sendText).not.toHaveBeenCalled();
+      expect(sendText).not.toHaveBeenCalled();
+      // One log line per refusal (issue #21).
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0][0])).toContain("group send refused");
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("transmits to group targets when groupTransmit is opted in", async () => {

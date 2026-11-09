@@ -68,6 +68,15 @@ A second structural rail caps total output: the **flood guard** budgets outbound
 
 If your node advertises a GPS position, that position is broadcast to every node in range — publish one you are comfortable sharing with strangers.
 
+### Sender identity: what you can and cannot trust
+
+Meshtastic encrypts channel traffic with AES-CTR and a shared channel PSK. **AES-CTR authenticates neither the sender nor the ciphertext**, and this plugin's TCP/serial receive path decrypts exactly that way (see [Encryption (TCP / serial)](#encryption-tcp--serial)). Consequences:
+
+- **On channels, a sender number is a claim, not proof.** Anyone holding the channel PSK can transmit a packet carrying any `from` number — and on the factory-default PSK (`AQ==`) channel, that means anyone in range. Treat channel sender identity as convenience-grade, always.
+- **Direct messages on a PSK channel are the same grade.** A DM arriving on the TCP/serial path decrypts with the shared channel key, so its sender field carries no cryptographic proof either. PKI-encrypted direct messages (per-node keys, firmware 2.5+) are not decrypted by this path today — per-node PKI support is tracked as [#7](https://github.com/fintlp/openclaw-meshtastic/issues/7). The HTTP transport decrypts server-side on the node; its trust properties are the node's, not this plugin's.
+- **Allowlists are policy, not identity.** `dmPolicy`, `groupAllowFrom` and friends gate *which sender numbers may reach the agent*. A forged sender number inherits whatever you allowed. For anything with physical or financial consequence — door locks, alarms, purchases — require out-of-band confirmation, no matter how certain the sender looks.
+- **The real perimeter is blast radius.** Run mesh traffic on a dedicated, least-privilege agent (see [Optional: dedicate an agent](#3-optional-dedicate-an-agent-to-mesh-traffic)), keep `groupTransmit` off, and treat every mesh-originated instruction as unverified until proven otherwise.
+
 ## Inbound durability (on by default)
 
 **Why this exists.** A mesh message that reaches your gateway but dies in a restart is gone — the sender's radio got no NAK, they think you read it, you never see it. That used to happen on every OpenClaw update, every config reload, every crash at the wrong second. Durability (issue #8) closes that gap: **frames admitted for an agent turn are logged before dispatch and replayed after a restart — at-least-once between the radio and the agent.**
@@ -284,6 +293,8 @@ This plugin handles client-side decryption automatically for non-HTTP transports
 3. The decrypted payload is dispatched through the normal inbound message pipeline — DM policy, group policy, allowlist checks, and agent delivery all work as with HTTP.
 
 No extra configuration is needed; decryption is transparent.
+
+Note what AES-CTR does **not** give you: authenticity. A decrypted packet's `from` field is an unverified claim — see [Sender identity](#sender-identity-what-you-can-and-cannot-trust).
 
 ## Documentation
 
