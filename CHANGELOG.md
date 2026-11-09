@@ -6,6 +6,27 @@ This fork (`fintlp/openclaw-meshtastic`) is the maintained line; upstream
 (`skrashevich/openclaw-meshtastic`) has been dormant since May 2026. Fixes
 are offered upstream as PRs. Date-based versioning: `2026.M.P`.
 
+## 2026.10.33 - 2026-11-10
+
+Security
+
+- **PKI-encrypted packets are now refused fail-closed** (#7 groundwork,
+  found by adversarial review): the TCP/serial receive path never checked
+  `meshPacket.pkiEncrypted`, and AES-CTR cannot throw on a wrong key — a
+  PKI-encrypted DM would "decrypt" into garbage text carrying the real
+  cleartext sender header and reach the agent as if from a paired contact.
+  Such packets are now dropped with a distinct log line before any
+  decryption attempt; a test proves the decryptor is never called for them
+  and nothing reaches the dispatch pipeline.
+- **Sender-identity trust model documented** (README + docs/meshtastic.md):
+  AES-CTR authenticates neither sender nor ciphertext; channel sender
+  numbers are convenience-grade; DMs on the PSK path are the same grade;
+  allowlists are policy, not identity; high-impact actions always need
+  out-of-band confirmation; blast-radius guidance. Answers the ClawScan
+  MCP07 audit finding with honest documentation.
+- **#21 done-when completed:** one log line per groupTransmit refusal,
+  pinned in both refusal tests (the guard itself shipped in 2026.10.25).
+
 ## 2026.10.32 - 2026-11-09
 
 Packaging
