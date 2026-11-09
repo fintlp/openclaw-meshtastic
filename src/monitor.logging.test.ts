@@ -209,4 +209,35 @@ describe("monitorMeshtasticProvider logging routes (fork#1)", () => {
     abortController.abort();
     await expect(monitorPromise).resolves.toEqual({ stop: expect.any(Function) });
   });
+
+  it("drops PKI-encrypted packets without decrypting or dispatching (fail-closed, #7)", async () => {
+    const { consoleLogSpy, subs, abortController, monitorPromise } = await startMonitor();
+
+    // Channel PSK present, so an ordinary encrypted packet WOULD be decrypted.
+    subs.onChannelPacket[0]!({ index: 0, settings: { psk: new Uint8Array([1]) } } as never);
+
+    for (const onMeshPacket of subs.onMeshPacket) {
+      onMeshPacket({
+        id: 11,
+        from: 456,
+        to: 123,
+        channel: 0,
+        rxTime: 0,
+        pkiEncrypted: true,
+        payloadVariant: { case: "encrypted", value: new Uint8Array([9, 9, 9]) },
+      } as never);
+    }
+
+    // Never mis-decrypt with the channel key, never reach the agent pipeline.
+    // (AES-CTR cannot throw on the wrong key — the garble-then-forward edge
+    // from the PR review is why this check exists.)
+    expect(decryptChannelPacketMock).not.toHaveBeenCalled();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(consoleLogSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining("inbound (decrypted)"),
+    );
+
+    abortController.abort();
+    await expect(monitorPromise).resolves.toEqual({ stop: expect.any(Function) });
+  });
 });

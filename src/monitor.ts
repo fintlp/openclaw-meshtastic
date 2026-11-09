@@ -286,6 +286,7 @@ export function monitorMeshtasticProvider(
             to: number;
             channel: number;
             rxTime: number;
+            pkiEncrypted?: boolean;
             payloadVariant: { case: string; value: unknown };
           }) => {
             opts.statusSink?.({
@@ -293,6 +294,18 @@ export function monitorMeshtasticProvider(
               lastTransportActivityAt: Date.now(),
             });
             if (meshPacket.payloadVariant.case !== "encrypted") {
+              return;
+            }
+            if (meshPacket.pkiEncrypted) {
+              // PKI-encrypted packets (per-node keys, firmware 2.5+) cannot be
+              // decrypted with the channel PSK — and AES-CTR never throws on a
+              // wrong key, so attempting it would "succeed" and garble the
+              // payload into plausible-looking text carrying the real,
+              // cleartext sender header. Fail closed instead: drop with a
+              // distinct log line. Per-node PKI support is issue #7.
+              logger.debug?.(
+                `[${account.accountId}] dropping PKI-encrypted packet ${meshPacket.id}: per-node PKI unsupported on this path (issue #7)`,
+              );
               return;
             }
             const encrypted = meshPacket.payloadVariant.value as Uint8Array;

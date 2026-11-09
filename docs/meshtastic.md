@@ -166,7 +166,10 @@ verified on this path:
   convenience-grade.
 - **Direct messages on a PSK channel:** same grade — decrypted with the shared channel
   key, sender field unverified. PKI-encrypted direct messages (per-node keys, firmware
-  2.5+) are not decrypted by this path; per-node PKI support is tracked as issue #7.
+  2.5+) are recognized and refused with a log line on this path — never mis-decrypted
+  with the channel key; per-node PKI support is tracked as issue #7. The HTTP transport
+  hands decryption to the node/library stack (its trust properties are the node's; not
+  verified against live firmware here — apply the same policy discipline either way).
 - **Allowlists are policy, not identity.** `dmPolicy` / `groupAllowFrom` gate which
   sender numbers may reach the agent; a forged sender number inherits whatever was
   allowed. High-impact actions (locks, alarms, purchases) should always require

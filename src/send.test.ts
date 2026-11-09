@@ -71,19 +71,31 @@ describe("sendMessageMeshtastic", () => {
     };
     getMeshtasticDeviceMock.mockReturnValue(handle);
 
-    await expect(
-      sendMessageMeshtastic("channel:0", "broadcast forbidden", {
-        cfg: createConfig(),
-      }),
-    ).rejects.toThrow(/receive-only/);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      await expect(
+        sendMessageMeshtastic("channel:0", "broadcast forbidden", {
+          cfg: createConfig(),
+        }),
+      ).rejects.toThrow(/receive-only/);
 
-    await expect(
-      sendMessageMeshtastic("broadcast", "broadcast forbidden", {
-        cfg: createConfig(),
-      }),
-    ).rejects.toThrow(/receive-only/);
+      await expect(
+        sendMessageMeshtastic("broadcast", "broadcast forbidden", {
+          cfg: createConfig(),
+        }),
+      ).rejects.toThrow(/receive-only/);
 
-    expect(sendText).not.toHaveBeenCalled();
+      expect(sendText).not.toHaveBeenCalled();
+      // Both refusals go through the group guard and log one line each (#21):
+      // "channel:0" directly, and "broadcast" because it is a channel-scoped
+      // target, not the reserved ^all/!ffffffff broadcast address.
+      expect(warn).toHaveBeenCalledTimes(2);
+      for (const call of warn.mock.calls) {
+        expect(String(call[0])).toContain("group send refused");
+      }
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("rejects group targets when groupTransmit is explicitly false", async () => {
