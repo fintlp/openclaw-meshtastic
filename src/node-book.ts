@@ -72,6 +72,14 @@ type NodeState = Omit<MeshtasticNodeRecord, "id" | "name" | "self"> & { longName
 
 const books = new Map<string, Map<number, NodeState>>();
 const selfNums = new Map<string, number>();
+/**
+ * Last few evicted entries per account. At cap-saturation during the connect
+ * replay, the gateway's own record can be evicted BEFORE onMyNodeInfo marks
+ * it as self; the tombstone lets a late setNodeBookSelf resurrect it WITH its
+ * names/role/position instead of as a blank entry (re-review finding 1).
+ */
+const recentEvictions = new Map<string, Array<{ num: number; state: NodeState }>>();
+const EVICTION_TOMBSTONE_MAX = 8;
 
 let testPath: string | undefined;
 let throttleMs = DEFAULT_THROTTLE_MS;
@@ -177,6 +185,12 @@ function evictOldestNonSelf(book: Map<number, NodeState>, accountId: string): bo
   if (oldestNum === null) {
     return false;
   }
+  const tombstones = recentEvictions.get(accountId) ?? [];
+  tombstones.push({ num: oldestNum, state: book.get(oldestNum)! });
+  if (tombstones.length > EVICTION_TOMBSTONE_MAX) {
+    tombstones.shift();
+  }
+  recentEvictions.set(accountId, tombstones);
   book.delete(oldestNum);
   return true;
 }
@@ -338,7 +352,12 @@ export function setNodeBookSelf(accountId: string, num: number | null | undefine
     if (book.size >= NODE_BOOK_MAX_NODES) {
       evictOldestNonSelf(book, accountId);
     }
-    book.set(num, {
+    // Restore rich data if this num was evicted moments ago (the replay race);
+    // otherwise a minimal entry — the next reconnect replay refills the rest.
+    const tombstones = recentEvictions.get(accountId) ?? [];
+    const tombstoneIdx = tombstones.findIndex((t) => t.num === num);
+    const tombstone = tombstoneIdx >= 0 ? tombstones.splice(tombstoneIdx, 1)[0] : undefined;
+    book.set(num, tombstone ? { ...tombstone.state } : {
       num,
       longName: "",
       shortName: "",
@@ -495,6 +514,7 @@ export function setNodeBookThrottleMsForTests(ms: number): void {
 export function resetNodeBookForTests(): void {
   books.clear();
   selfNums.clear();
+  recentEvictions.clear();
   pending.clear();
   if (throttleTimer) {
     clearTimeout(throttleTimer);

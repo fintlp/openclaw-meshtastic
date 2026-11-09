@@ -243,6 +243,31 @@ describe("snapshot", () => {
     expect(node(1)).toBeDefined();
     expect(buildNodeBook(ACCT).totalNodes).toBeLessThanOrEqual(NODE_BOOK_MAX_NODES);
   });
+
+  it("restores self's rich data (name/role/position) when resurrecting after the race", () => {
+    // Same race, but self's record carries real metadata. Resurrection must
+    // restore presence AND identity — a blank !00000001 entry for the rest of
+    // the session is not good enough (re-review finding 1).
+    recordNodeInfo(ACCT, {
+      num: 1,
+      lastHeard: 0,
+      user: { longName: "Home Gateway", shortName: "HG", role: ROLE_ROUTER, hwModel: HELTEC_V3 },
+      position: { latitudeI: 471369510, longitudeI: 154816690 },
+    });
+    for (let i = 2; i <= NODE_BOOK_MAX_NODES + 1; i += 1) {
+      recordNodeInfo(ACCT, { num: i, lastHeard: 1000 + i });
+    }
+    expect(node(1)).toBeUndefined(); // evicted while unprotected
+    setNodeBookSelf(ACCT, 1);
+    const self = node(1)!;
+    expect(self.self).toBe(true);
+    expect(self.name).toBe("Home Gateway");
+    expect(self.shortName).toBe("HG");
+    expect(self.role).toBe("router");
+    expect(self.hwModel).toBe("heltec_v3");
+    expect(self.lat).toBeCloseTo(47.136951, 5);
+    expect(self.lon).toBeCloseTo(15.481669, 5);
+  });
 });
 
 describe("persistence", () => {
