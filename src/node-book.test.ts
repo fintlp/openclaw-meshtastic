@@ -187,6 +187,18 @@ describe("snapshot", () => {
     expect(buildNodeBook("attic").nodes.map((n) => n.num)).toEqual([2]);
   });
 
+  it("truncates names by code point, never splitting a surrogate pair", () => {
+    // 63 ASCII + one emoji: a UTF-16-unit cut at 64 would leave a lone high
+    // surrogate; the stored name must stay well-formed either way.
+    const longName = "a".repeat(63) + "\u{1F600}" + "b".repeat(10);
+    recordNodeInfo(ACCT, { num: 42, user: { longName, shortName: "ab\u{1F600}cdefgh" } });
+    const entry = node(42)!;
+    expect([...entry.name].length).toBeLessThanOrEqual(64);
+    expect(entry.name.isWellFormed()).toBe(true);
+    expect([...entry.shortName].length).toBeLessThanOrEqual(8);
+    expect(entry.shortName.isWellFormed()).toBe(true);
+  });
+
   it("caps the book and evicts the least recently heard node, never self", () => {
     setNodeBookSelf(ACCT, 1);
     recordNodeInfo(ACCT, { num: 1, lastHeard: 0 });
@@ -200,13 +212,65 @@ describe("snapshot", () => {
     expect(node(2)).toBeUndefined();
     expect(node(999999)).toBeDefined();
   });
+
+  it("evicts by lastHeard, not insertion order", () => {
+    // Insertion order and recency deliberately disagree: node 7 is inserted
+    // first but is the most recently heard; a FIFO mutation would evict it.
+    recordNodeInfo(ACCT, { num: 7, lastHeard: 9999 });
+    for (let i = 0; i < NODE_BOOK_MAX_NODES - 1; i += 1) {
+      recordNodeInfo(ACCT, { num: 100 + i, lastHeard: 10 + i });
+    }
+    recordNodeInfo(ACCT, { num: 999999, lastHeard: 600 });
+    expect(node(7)).toBeDefined();
+    expect(node(100)).toBeUndefined();
+    expect(node(999999)).toBeDefined();
+  });
+
+  it("protects self even when self-registration arrives after the book filled", () => {
+    // Event-order race (PR #16 review): self's NodeInfo record arrives via the
+    // ordinary replay with lastHeard 0 (a gateway never hears itself), so a
+    // cap eviction BEFORE onMyNodeInfo marks it self makes it the prime
+    // victim. Late registration must resurrect it, protected.
+    recordNodeInfo(ACCT, { num: 1, lastHeard: 0 });
+    for (let i = 2; i <= NODE_BOOK_MAX_NODES + 1; i += 1) {
+      recordNodeInfo(ACCT, { num: i, lastHeard: 1000 + i });
+    }
+    expect(node(1)).toBeUndefined(); // evicted while still unprotected
+    setNodeBookSelf(ACCT, 1);
+    expect(node(1)).toBeDefined();
+    expect(node(1)!.self).toBe(true);
+    recordNodeInfo(ACCT, { num: 888888, lastHeard: 9000 });
+    expect(node(1)).toBeDefined();
+    expect(buildNodeBook(ACCT).totalNodes).toBeLessThanOrEqual(NODE_BOOK_MAX_NODES);
+  });
 });
 
 describe("persistence", () => {
   it("never resolves to the operator's real state dir under vitest", () => {
-    expect(nodeBookPath(ACCT).startsWith(join(homedir(), ".openclaw"))).toBe(false);
+    // The invariant is "never the LIVE state dir", not "nothing under
+    // ~/.openclaw": under the gateway's exec env TMPDIR itself points into
+    // ~/.openclaw/tmp, and tests/setup.ts redirects it into a per-run root
+    // there. Asserting the whole prefix makes the test environment-dependent.
+    const realStateDir = join(homedir(), ".openclaw", "state");
+    expect(nodeBookPath(ACCT).startsWith(realStateDir)).toBe(false);
     expect(nodeBookPath(ACCT)).toMatch(/meshtastic-nodes\.json$/);
     expect(nodeBookPath("attic")).toMatch(/meshtastic-nodes\.attic\.json$/);
+  });
+
+  it("a second write fully replaces the file — no evicted nodes resurrect on disk", () => {
+    const path = join(dir, "meshtastic-nodes.json");
+    setNodeBookPathForTests(path);
+    recordNodeInfo(ACCT, { num: 1, lastHeard: 0 });
+    flushNodeBookWrites();
+    expect(readNodeBook(ACCT)!.nodes.map((n) => n.num)).toEqual([1]);
+    // Fill past the cap so node 1 is evicted in memory, then flush again.
+    for (let i = 2; i <= NODE_BOOK_MAX_NODES + 1; i += 1) {
+      recordNodeInfo(ACCT, { num: i, lastHeard: 1000 + i });
+    }
+    flushNodeBookWrites();
+    const disk = readNodeBook(ACCT)!;
+    expect(disk.nodes.some((n) => n.num === 1)).toBe(false);
+    expect(disk.totalNodes).toBe(NODE_BOOK_MAX_NODES);
   });
 
   it("throttles writes and flushes them to disk with owner-only permissions", () => {
@@ -276,5 +340,21 @@ describe("subscribeNodeBook", () => {
     expect(() => handlers.onNodeInfoPacket(null)).not.toThrow();
     expect(() => handlers.onMeshPacket({ from: "x" })).not.toThrow();
     expect(buildNodeBook(ACCT).totalNodes).toBe(0);
+  });
+
+  it("contains a payload that defeats the internal guards (getter throws)", () => {
+    // Null/shape inputs are caught by the recorders' own guards; this one gets
+    // past them and throws INSIDE the handler — only the subscribe wrapper's
+    // try/catch contains it. A mutation deleting that wrapper fails this test.
+    const { events, handlers } = fakeEvents(["onNodeInfoPacket"]);
+    subscribeNodeBook(ACCT, events);
+    const hostile = {
+      get num() {
+        throw new Error("boom");
+      },
+    };
+    expect(() => handlers.onNodeInfoPacket(hostile)).not.toThrow();
+    handlers.onNodeInfoPacket({ num: 42, user: { longName: "After" } });
+    expect(node(42)).toBeDefined();
   });
 });

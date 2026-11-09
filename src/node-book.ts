@@ -163,6 +163,24 @@ function bookFor(accountId: string): Map<number, NodeState> {
   return book;
 }
 
+/** Evict the least-recently-heard node that is not this account's self node. */
+function evictOldestNonSelf(book: Map<number, NodeState>, accountId: string): boolean {
+  let oldestNum: number | null = null;
+  let oldestHeard = Number.POSITIVE_INFINITY;
+  const self = selfNums.get(accountId);
+  for (const [n, s] of book) {
+    if (n !== self && s.lastHeard < oldestHeard) {
+      oldestHeard = s.lastHeard;
+      oldestNum = n;
+    }
+  }
+  if (oldestNum === null) {
+    return false;
+  }
+  book.delete(oldestNum);
+  return true;
+}
+
 function upsert(accountId: string, num: number): NodeState | null {
   const book = bookFor(accountId);
   const existing = book.get(num);
@@ -171,18 +189,9 @@ function upsert(accountId: string, num: number): NodeState | null {
   }
   if (book.size >= NODE_BOOK_MAX_NODES) {
     // Evict the least recently heard node to make room.
-    let oldestNum: number | null = null;
-    let oldestHeard = Number.POSITIVE_INFINITY;
-    for (const [n, s] of book) {
-      if (n !== selfNums.get(accountId) && s.lastHeard < oldestHeard) {
-        oldestHeard = s.lastHeard;
-        oldestNum = n;
-      }
-    }
-    if (oldestNum === null) {
+    if (!evictOldestNonSelf(book, accountId)) {
       return null;
     }
-    book.delete(oldestNum);
   }
   const fresh: NodeState = {
     num,
@@ -203,10 +212,13 @@ function applyUser(state: NodeState, user: unknown): void {
   }
   const u = user as Record<string, unknown>;
   if (typeof u.longName === "string" && u.longName) {
-    state.longName = u.longName.slice(0, 64);
+    // Truncate by code point, never UTF-16 code unit: a lone surrogate in
+    // stored JSON serializes as an ill-formed \uD8xx escape — and a stored
+    // node name can boomerang back onto the mesh inside an agent reply.
+    state.longName = [...u.longName].slice(0, 64).join("");
   }
   if (typeof u.shortName === "string" && u.shortName) {
-    state.shortName = u.shortName.slice(0, 8);
+    state.shortName = [...u.shortName].slice(0, 8).join("");
   }
   const role = roleName(u.role);
   if (role) state.role = role;
@@ -311,10 +323,32 @@ export function recordMeshPacket(accountId: string, packet: unknown, nowSeconds?
 
 /** Remember which node number is this gateway's own radio. */
 export function setNodeBookSelf(accountId: string, num: number | null | undefined): void {
-  if (validNodeNum(num)) {
-    selfNums.set(accountId, num);
-    markChanged(accountId);
+  if (!validNodeNum(num)) {
+    return;
   }
+  selfNums.set(accountId, num);
+  const book = bookFor(accountId);
+  if (!book.has(num)) {
+    // The gateway's own NodeInfo record arrives via the ordinary replay path
+    // and never "hears" itself, so its lastHeard stays 0 — the prime LRU
+    // victim if a cap-triggered eviction fires before onMyNodeInfo registers
+    // it as self. Resurrect a minimal protected entry so "never evicts self"
+    // holds regardless of event order; the next NodeInfo replay refills
+    // names/role/position. (PR #16 review, finding 1.)
+    if (book.size >= NODE_BOOK_MAX_NODES) {
+      evictOldestNonSelf(book, accountId);
+    }
+    book.set(num, {
+      num,
+      longName: "",
+      shortName: "",
+      role: null,
+      hwModel: null,
+      lastHeard: 0,
+      viaMqtt: false,
+    });
+  }
+  markChanged(accountId);
 }
 
 // ---------------------------------------------------------------------------
