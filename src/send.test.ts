@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { clearOutboundEchoCache, isOutboundEcho } from "./echo-dedupe.js";
 import { clearSendRateLimitState } from "./rate-limit.js";
 import { sendMessageMeshtastic, sendTextWithoutBlockingForAck } from "./send.js";
+import { UNICODE_CORPUS } from "./test-fixtures/unicode-corpus.js";
 import type { CoreConfig } from "./types.js";
 
 const { connectMeshtasticDeviceMock, getMeshtasticDeviceMock } = vi.hoisted(() => ({
@@ -226,12 +227,15 @@ describe("sendMessageMeshtastic", () => {
     };
     getMeshtasticDeviceMock.mockReturnValue(handle);
 
+    // Issue #17: textChunkLimit is now in BYTES. An emoji is 4 UTF-8 bytes,
+    // so a limit of 8 fits exactly two — and a chunk boundary must never land
+    // inside a surrogate pair.
     await sendMessageMeshtastic("channel:3", "😀😀😀", {
       cfg: {
         channels: {
           meshtastic: {
             host: "192.168.1.10",
-            textChunkLimit: 2,
+            textChunkLimit: 8,
             groupTransmit: true,
           },
         },
@@ -398,5 +402,91 @@ describe("out-of-range node number refusal", () => {
     });
     expect(sendText).toHaveBeenCalledWith("ok", 2, true, undefined, undefined);
     expect(ok).toBe(42);
+  });
+});
+
+describe("unicode sends (issue #17)", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+    clearOutboundEchoCache();
+    clearSendRateLimitState();
+  });
+
+  function createFakeDevice(sendTextImpl: (text: string) => Promise<number>) {
+    const sendText = vi.fn(sendTextImpl);
+    const handle = {
+      accountId: "default",
+      myNodeNum: 123,
+      device: {
+        sendText,
+        queue: { getState: () => [] as Array<{ id: number; added?: Date }> },
+      },
+    };
+    getMeshtasticDeviceMock.mockReturnValue(handle);
+    return { sendText, handle };
+  }
+
+  const utf8Bytes = (s: string): number => new TextEncoder().encode(s).length;
+
+  it("fails visibly when the radio answers TOO_LARGE for a sent part", async () => {
+    // @meshtastic/core rejects the queued packet with a plain {id, error}
+    // object (Routing_Error.TOO_LARGE = 7); the plugin must convert that into
+    // a named error instead of letting an opaque object escape.
+    const { sendText } = createFakeDevice(() => Promise.reject({ id: 7, error: 7 }));
+
+    await expect(
+      sendMessageMeshtastic("!00000002", "hello mesh", { cfg: createConfig(), ackWaitMs: 50 }),
+    ).rejects.toThrow(/TOO_LARGE/);
+    expect(sendText).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-splits a 200-character host pre-chunked piece into byte-limited packets", async () => {
+    // The host pre-chunker (outbound-base.ts, textChunkLimit 200, character-
+    // based) hands over 200-code-point pieces; Russian at ~2 bytes/char makes
+    // that ~370 bytes — over the radio cap before this fix.
+    const piece = "Привет! Это тестовое сообщение для проверки разбиения длинных ответов. ";
+    const twoHundred = Array.from(piece.repeat(3)).slice(0, 200).join("");
+    const sent: string[] = [];
+    const { sendText } = createFakeDevice((text: string) => {
+      sent.push(text);
+      return new Promise<number>(() => undefined);
+    });
+
+    await sendMessageMeshtastic("!00000002", twoHundred, { cfg: createConfig(), ackWaitMs: 1 });
+
+    expect(sent.length).toBeGreaterThan(1);
+    for (const part of sent) {
+      expect(utf8Bytes(part)).toBeLessThanOrEqual(200); // default chunk limit, bytes
+    }
+  });
+
+  it("counts the byte-chunked packets, not the 200-character pieces (whole-message refusal)", async () => {
+    // ~860 bytes of Chinese → 5 packets at the 200-byte default; a budget of
+    // 2 must refuse the whole message before anything goes on air.
+    const text = UNICODE_CORPUS.chineseSimplified.text.repeat(8);
+    const { sendText } = createFakeDevice(() => new Promise<number>(() => undefined));
+    const cfg = createConfig({ sendRateLimit: { maxSends: 2, windowMs: 60_000 } });
+
+    await expect(sendMessageMeshtastic("!00000002", text, { cfg, ackWaitMs: 1 })).rejects.toThrow(
+      /rate limit/,
+    );
+    expect(sendText).not.toHaveBeenCalled();
+  });
+
+  it("clamps a configured textChunkLimit above 221 for the wire", async () => {
+    const text = "абвгд".repeat(50); // 250 Cyrillic chars = 500 bytes
+    const sent: string[] = [];
+    const { sendText } = createFakeDevice((part: string) => {
+      sent.push(part);
+      return new Promise<number>(() => undefined);
+    });
+    const cfg = createConfig({ textChunkLimit: 500 });
+
+    await sendMessageMeshtastic("!00000002", text, { cfg, ackWaitMs: 1 });
+
+    expect(sent.length).toBeGreaterThan(2); // 500 bytes at 221 → 3 packets
+    for (const part of sent) {
+      expect(utf8Bytes(part)).toBeLessThanOrEqual(221);
+    }
   });
 });
