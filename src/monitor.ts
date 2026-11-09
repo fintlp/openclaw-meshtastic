@@ -11,6 +11,7 @@ import { isOutboundEcho, rememberOutboundEcho } from "./echo-dedupe.js";
 import { handleMeshtasticInbound } from "./inbound.js";
 import { DEFAULT_DURABILITY_CONFIG, type DurabilityStore } from "./durability.js";
 import { formatMeshtasticChannelTarget, formatMeshtasticNodeId } from "./normalize.js";
+import { flushNodeBookWrites, subscribeNodeBook } from "./node-book.js";
 import { formatMeshtasticEndpoint } from "./transport.js";
 import type { RuntimeEnv } from "./runtime-api.js";
 import { getMeshtasticRuntime } from "./runtime.js";
@@ -171,6 +172,15 @@ export function monitorMeshtasticProvider(
 
     const allowedChannels = new Set(account.config.channels ?? [0]);
     const unsubscribers: Array<() => void> = [];
+
+    // Node book (#15): passive, zero airtime. Subscribed before configure()
+    // so the node database the radio replays on connect is captured.
+    unsubscribers.push(
+      ...subscribeNodeBook(
+        account.accountId,
+        handle.device.events as unknown as Record<string, unknown>,
+      ),
+    );
 
     const channelPsks = new Map<number, Uint8Array>();
 
@@ -383,6 +393,8 @@ export function monitorMeshtasticProvider(
       for (const unsubscribe of unsubscribers) {
         unsubscribe();
       }
+      // Persist the node book now instead of losing up to one throttle window.
+      flushNodeBookWrites();
       void disconnectMeshtasticDevice(account.accountId);
     };
 
