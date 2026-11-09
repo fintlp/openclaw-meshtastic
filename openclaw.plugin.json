@@ -6,11 +6,6 @@
   "channels": [
     "meshtastic"
   ],
-  "channelEnvVars": {
-    "meshtastic": [
-      "MESHTASTIC_HOST"
-    ]
-  },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,

@@ -6,6 +6,19 @@ This fork (`fintlp/openclaw-meshtastic`) is the maintained line; upstream
 (`skrashevich/openclaw-meshtastic`) has been dormant since May 2026. Fixes
 are offered upstream as PRs. Date-based versioning: `2026.M.P`.
 
+## 2026.10.32 - 2026-11-09
+
+Packaging
+
+- **Manifest metadata modernization:** added the current declarative
+  env-setup metadata (`package.json#openclaw.channel.configuredState.env`)
+  and dropped the legacy `channelEnvVars` manifest field. OpenClaw
+  >= 2026.10.5 — the supported floor — already resolves env setup via the
+  current form, so the legacy field was redundant across the whole
+  supported range. Clears the registry manifest-unknown-fields and
+  channel-env-vars warnings (local inspector: PASS, 0 warnings). No runtime
+  change.
+
 ## 2026.10.31 - 2026-11-09
 
 Fixed
