@@ -254,7 +254,7 @@ truncated. OpenClaw splits long agent replies to a UTF-8 **byte** budget
 with a one-time log note — the schema range 40..500 still validates existing configs).
 Whitespace boundaries are preferred; hard splits (no-space scripts) happen only at
 grapheme cluster boundaries, so combined characters (emoji sequences, flags, niqqud,
-tashkeel, decomposed accents) never break across parts. A radio refusal of a part
+tashkeel, decomposed accents) never break across parts — this guarantee covers the plugin's own split; the host pre-chunker cuts upstream of it. A radio refusal of a part
 fails the send visibly instead of reporting success. Host pre-chunked 200-character
 pieces are re-split to the byte budget on the way out. Chunk mode can be `length`
 (default) or `newline` (split on paragraph boundaries).

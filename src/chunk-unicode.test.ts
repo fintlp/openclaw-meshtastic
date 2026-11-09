@@ -98,3 +98,34 @@ describe("chunkUtf8 without Intl.Segmenter (issue #17)", () => {
     }
   });
 });
+
+describe("chunkUtf8: single grapheme larger than the limit (issue #17)", () => {
+  it("splits an oversized cluster at code-point boundaries, never mid-codepoint, within the byte limit", () => {
+    // One grapheme cluster of 61 bytes: base 'e' + 30 combining acute accents
+    // (U+0301, 2 bytes each). Larger than the 40-byte limit, so the code-point
+    // fallback (segmentBytes > limit) must engage — with Intl.Segmenter
+    // AVAILABLE, unlike the no-Segmenter fallback test above. No corpus entry
+    // reaches this branch (largest corpus grapheme: 25 bytes at a min limit
+    // of 40), so without this test a mutation replacing the code-point
+    // iteration with a UTF-16-unit split would pass the entire sweep while
+    // silently splitting surrogate pairs.
+    const oversized = "e" + "\u0301".repeat(30);
+    expect(graphemeCount(oversized)).toBe(1);
+    expect(utf8Bytes(oversized)).toBeGreaterThan(40);
+
+    const input = "prefix " + oversized + " suffix";
+    const chunks = chunkUtf8(input, 40);
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const c of chunks) {
+      expect(utf8Bytes(c)).toBeLessThanOrEqual(40);
+      // Every chunk must be valid standalone Unicode: no lone surrogates,
+      // and strict UTF-8 decoding must not fail.
+      expect([...c].every((ch) => !/[\uD800-\uDFFF]/.test(ch))).toBe(true);
+      expect(() =>
+        new TextDecoder("utf-8", { fatal: true }).decode(encoder.encode(c)),
+      ).not.toThrow();
+    }
+    // Lossless (whitespace may move at preferred-split boundaries).
+    expect(chunks.join("").replace(/\s+/g, "")).toBe(input.replace(/\s+/g, ""));
+  });
+});

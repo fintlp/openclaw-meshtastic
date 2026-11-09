@@ -49,7 +49,7 @@ Five minutes of [docs/meshtastic.md](docs/meshtastic.md) saves the evening.
 - **Three official transports:** TCP (4403, default), HTTP (node API), USB serial.
 - **Client-side AES-CTR decryption** for TCP/serial — encrypted mesh traffic works out of the box.
 - **Reply-to threading, multi-account, multi-agent binding.**
-- **Byte-accurate outbound chunking.** Long replies are split to a UTF-8 **byte** budget (`textChunkLimit`, default 200 bytes) and capped at the 221-byte radio payload limit — larger configured values are clamped with a one-time log note. Whitespace boundaries are preferred and hard splits happen only at grapheme clusters, so combined characters (emoji sequences, flags, niqqud, tashkeel, decomposed accents) never break across parts.
+- **Byte-accurate outbound chunking.** Long replies are split to a UTF-8 **byte** budget (`textChunkLimit`, default 200 bytes) and capped at the 221-byte radio payload limit — larger configured values are clamped with a one-time log note. Whitespace boundaries are preferred and hard splits happen only at grapheme clusters, so combined characters (emoji sequences, flags, niqqud, tashkeel, decomposed accents) never break across parts. This guarantee covers the plugin's own split; if the OpenClaw host pre-chunks a long reply before handing it to the plugin, upstream cuts are outside the plugin's control.
 
 ## Safety by default: an agent with a transmitter
 
