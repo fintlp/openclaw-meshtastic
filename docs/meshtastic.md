@@ -155,6 +155,29 @@ This plugin handles client-side decryption automatically for non-HTTP transports
 No extra configuration is needed; decryption is transparent once the channel PSKs are
 received from the device.
 
+### Sender identity (trust model)
+
+AES-CTR decrypts; it does **not** authenticate. Neither the sender nor the ciphertext is
+verified on this path:
+
+- **Channel traffic:** the `from` number in a decrypted channel packet is a claim, not
+  proof. Any holder of the channel PSK can forge any sender number; on the factory-default
+  PSK (`AQ==`) channel, anyone in range can. Treat channel sender identity as
+  convenience-grade.
+- **Direct messages on a PSK channel:** same grade — decrypted with the shared channel
+  key, sender field unverified. PKI-encrypted direct messages (per-node keys, firmware
+  2.5+) are recognized and refused with a log line on this path — never mis-decrypted
+  with the channel key; per-node PKI support is tracked as issue #7. The HTTP transport
+  hands decryption to the node/library stack (its trust properties are the node's; not
+  verified against live firmware here — apply the same policy discipline either way).
+- **Allowlists are policy, not identity.** `dmPolicy` / `groupAllowFrom` gate which
+  sender numbers may reach the agent; a forged sender number inherits whatever was
+  allowed. High-impact actions (locks, alarms, purchases) should always require
+  out-of-band confirmation regardless of how trusted the sender appears.
+- **Blast radius is the real perimeter:** a dedicated, least-privilege mesh agent,
+  `groupTransmit: false` (default), and receive-only channel defaults bound what a
+  forged message can achieve.
+
 ## Environment variables (default account)
 
 | Variable | Description |
