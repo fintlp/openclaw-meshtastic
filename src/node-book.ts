@@ -122,8 +122,9 @@ export type MeshtasticKeyMismatch = {
 };
 
 export type NodeKeyObservation = {
-  /** pinned = new first-seen pin; match = continuity confirmed; mismatch = conflict, pin kept. */
-  status: "pinned" | "match" | "mismatch";
+  /** pinned = new first-seen pin; match = continuity confirmed; mismatch = conflict, pin kept.
+   *  saturated = store full of manually verified pins, no pin written (first-contact grade). */
+  status: "pinned" | "match" | "mismatch" | "saturated";
   /** Fingerprint of the observed key. */
   keyFp: string;
   /** Fingerprint of the stored pin, set on mismatch. */
@@ -158,7 +159,15 @@ type KeyPin = {
  */
 type KeyTombstone = {
   num: number;
-  /** Fingerprint of the evicted pin's key. */
+  /**
+   * The full evicted public key (base64). Comparing full key bytes is the
+   * whole point: a truncated fingerprint is not identity — an attacker who
+   * knows the victim's key could grind a 2^48 colliding key and be granted
+   * silent continuity restoration. Optional only for legacy entries written
+   * before this field existed.
+   */
+  key?: string;
+  /** Fingerprint of the evicted pin's key (display/logs). */
   keyFp: string;
   /** Epoch seconds. */
   evictedAt: number;
@@ -176,7 +185,7 @@ type MeshtasticKeyBookFile = {
     manuallyVerified: boolean;
   }>;
   /** Eviction tombstones (bounded) — see the doc comment on KeyTombstone. */
-  evicted: Array<{ num: number; keyFp: string; evictedAt: number }>;
+  evicted: Array<{ num: number; key?: string; keyFp: string; evictedAt: number }>;
   /** Last operator re-pin time per node (epoch seconds), for idempotency. */
   repins: Array<{ num: number; lastRepinAt: number }>;
 };
@@ -188,12 +197,14 @@ type MeshtasticKeyBookFile = {
  */
 export const KEY_BOOK_MAX_PINS = 2000;
 /** Tombstones outlive the pins they describe; generous so flood eviction is not lost. */
-export const KEY_TOMBSTONE_MAX = 5000;
+export const KEY_TOMBSTONE_MAX = 50000;
 const KEY_MISMATCH_MAX_RECORDS = 50;
 
 const keyPins = new Map<string, Map<number, KeyPin>>();
 const keyTombstones = new Map<string, Map<number, KeyTombstone>>();
 const keyRepinMarkers = new Map<string, Map<number, number>>();
+/** One saturation log line per account, not per packet. */
+const saturationLogged = new Set<string>();
 const keyPinsLoaded = new Set<string>();
 const keyMismatches = new Map<string, MeshtasticKeyMismatch[]>();
 /** Dedupe: only log/save a mismatch when the (node, observed, pinned) triple changes. */
@@ -594,10 +605,20 @@ function repinMarkersFor(accountId: string): Map<number, number> {
   return markers;
 }
 
-function recordTombstone(accountId: string, num: number, keyFp: string): void {
+function recordTombstone(
+  accountId: string,
+  num: number,
+  publicKey: string,
+  keyFp: string,
+): void {
   const tombstones = tombstonesFor(accountId);
   tombstones.delete(num);
-  tombstones.set(num, { num, keyFp, evictedAt: Math.floor(Date.now() / 1000) });
+  tombstones.set(num, {
+    num,
+    key: publicKey,
+    keyFp,
+    evictedAt: Math.floor(Date.now() / 1000),
+  });
   while (tombstones.size > KEY_TOMBSTONE_MAX) {
     const oldest = tombstones.keys().next().value;
     if (oldest === undefined) {
@@ -645,9 +666,15 @@ export function pruneRepinMarkers(accountId: string, keepNums: Set<number>): num
 export function getKeyTombstone(
   accountId: string,
   num: number,
-): { keyFp: string; evictedAt: number } | null {
+): { key?: string; keyFp: string; evictedAt: number } | null {
   const tombstone = tombstonesFor(accountId).get(num);
-  return tombstone ? { keyFp: tombstone.keyFp, evictedAt: tombstone.evictedAt } : null;
+  return tombstone
+    ? {
+        ...(tombstone.key ? { key: tombstone.key } : {}),
+        keyFp: tombstone.keyFp,
+        evictedAt: tombstone.evictedAt,
+      }
+    : null;
 }
 
 function emitKeyEvent(line: string): void {
@@ -697,9 +724,9 @@ export function setKeyEventSink(sink: ((line: string) => void) | null): void {
   keyEventSink = sink;
 }
 
-function evictPinIfNeeded(accountId: string, pins: Map<number, KeyPin>): void {
+function evictPinIfNeeded(accountId: string, pins: Map<number, KeyPin>): boolean {
   if (pins.size < KEY_BOOK_MAX_PINS) {
-    return;
+    return true;
   }
   let candidate: KeyPin | null = null;
   for (const pin of pins.values()) {
@@ -711,26 +738,32 @@ function evictPinIfNeeded(accountId: string, pins: Map<number, KeyPin>): void {
     }
   }
   if (!candidate) {
-    for (const pin of pins.values()) {
-      if (!candidate || pin.lastSeenAt < candidate.lastSeenAt) {
-        candidate = pin;
-      }
+    // Every pin is manually verified. Verified pins are the operator's trusted
+    // anchors and are NEVER evicted (the documented guarantee), so a new key
+    // simply cannot be pinned while the store is saturated this way.
+    if (!saturationLogged.has(accountId)) {
+      saturationLogged.add(accountId);
+      emitKeyEvent(
+        `[${accountId}] pki pin store full of manually verified pins — new keys are NOT ` +
+          `pinned (verified pins are never evicted); they grade as first contact`,
+      );
     }
+    return false;
   }
-  if (candidate) {
-    pins.delete(candidate.num);
-    const bytes = base64ToKeyBytes(candidate.publicKey);
-    recordTombstone(
-      accountId,
-      candidate.num,
-      bytes ? meshtasticKeyFingerprint(bytes) : "unknown",
-    );
-    emitKeyEvent(
-      `[${accountId}] pki pin store full — evicted pin for ${formatMeshtasticNodeId(candidate.num)} ` +
-        `(least recently seen); the same key re-verifies on return, a different key stays ` +
-        `unverified until an operator re-pin (pkiRepin)`,
-    );
-  }
+  pins.delete(candidate.num);
+  const bytes = base64ToKeyBytes(candidate.publicKey);
+  recordTombstone(
+    accountId,
+    candidate.num,
+    candidate.publicKey,
+    bytes ? meshtasticKeyFingerprint(bytes) : "unknown",
+  );
+  emitKeyEvent(
+    `[${accountId}] pki pin store full — evicted pin for ${formatMeshtasticNodeId(candidate.num)} ` +
+      `(least recently seen); the same key re-verifies on return, a different key stays ` +
+      `unverified until an operator re-pin (pkiRepin)`,
+  );
+  return true;
 }
 
 /**
@@ -760,10 +793,18 @@ export function observeNodeKey(
   if (!existing) {
     const tombstone = tombstonesFor(accountId).get(num);
     if (tombstone) {
-      if (tombstone.keyFp === keyFp) {
+      // Compare FULL key bytes when the tombstone carries them (all new
+      // evictions do). Fingerprint equality alone is not identity: an attacker
+      // who knows the victim's key could grind a 2^48 colliding key and be
+      // granted silent continuity. fp comparison remains only for legacy
+      // tombstones written before the full-key field existed.
+      const sameKey = tombstone.key ? tombstone.key === publicKey : tombstone.keyFp === keyFp;
+      if (sameKey) {
         // The same key the evicted pin held: restore continuity instead of
         // reopening first-seen. Legitimate eviction + return keeps working.
-        evictPinIfNeeded(accountId, pins);
+        if (!evictPinIfNeeded(accountId, pins)) {
+          return { status: "saturated", keyFp, crc32Anomaly };
+        }
         pins.set(num, {
           num,
           publicKey,
@@ -788,7 +829,11 @@ export function observeNodeKey(
       });
       return { status: "mismatch", keyFp, pinnedKeyFp: tombstone.keyFp, crc32Anomaly };
     }
-    evictPinIfNeeded(accountId, pins);
+    if (!evictPinIfNeeded(accountId, pins)) {
+      // Store saturated with manually verified pins: no room, and verified
+      // pins are never evicted. Surface first-contact grade, write no pin.
+      return { status: "saturated", keyFp, crc32Anomaly };
+    }
     pins.set(num, {
       num,
       publicKey,
@@ -919,6 +964,14 @@ export function senderIdentityFromObservation(obs: NodeKeyObservation): Meshtast
       detail: `key changed (pinned fp=${obs.pinnedKeyFp ?? "unknown"})`,
     };
   }
+  if (obs.status === "saturated") {
+    return {
+      grade: "pki-verified",
+      keyFp: obs.keyFp,
+      firstContact: true,
+      detail: "key store saturated with manually verified pins — key not pinned; no continuity",
+    };
+  }
   if (obs.status === "pinned") {
     return {
       grade: "pki-verified",
@@ -1028,7 +1081,14 @@ export function writeKeyBook(accountId: string): void {
     generatedAt: new Date().toISOString(),
     accountId,
     pins,
-    evicted: [...tombstonesFor(accountId).values()].sort((a, b) => a.num - b.num),
+    evicted: [...tombstonesFor(accountId).values()]
+      .sort((a, b) => a.num - b.num)
+      .map((t) => ({
+        num: t.num,
+        ...(t.key ? { key: t.key } : {}),
+        keyFp: t.keyFp,
+        evictedAt: t.evictedAt,
+      })),
     repins: [...repinMarkersFor(accountId).entries()]
       .sort((a, b) => a[0] - b[0])
       .map(([num, lastRepinAt]) => ({ num, lastRepinAt })),
@@ -1084,8 +1144,11 @@ function readKeyBookFile(accountId: string): {
       if (!entry || typeof entry !== "object") continue;
       const e = entry as Record<string, unknown>;
       if (!validNodeNum(e.num) || typeof e.keyFp !== "string" || !e.keyFp) continue;
+      const keyB64 =
+        typeof e.key === "string" && base64ToKeyBytes(e.key) ? (e.key as string) : undefined;
       evicted.push({
         num: e.num,
+        ...(keyB64 ? { key: keyB64 } : {}),
         keyFp: e.keyFp,
         evictedAt: finite(e.evictedAt) ? e.evictedAt : 0,
       });
@@ -1202,6 +1265,7 @@ export function resetNodeBookForTests(): void {
   keyPins.clear();
   keyTombstones.clear();
   keyRepinMarkers.clear();
+  saturationLogged.clear();
   keyPinsLoaded.clear();
   keyMismatches.clear();
   lastMismatchTriple.clear();

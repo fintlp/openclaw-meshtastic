@@ -9,6 +9,7 @@ import {
   clearNodeKeyPin,
   crc32ForNodeKey,
   flushNodeBookWrites,
+  getKeyTombstone,
   getNodeKeyPin,
   getRepinMarker,
   markNodeKeyManuallyVerified,
@@ -477,5 +478,75 @@ describe("operator re-pin markers (#7)", () => {
     expect(pruneRepinMarkers(ACCT, new Set([b]))).toBe(1);
     expect(getRepinMarker(ACCT, a)).toBeUndefined();
     expect(getRepinMarker(ACCT, b)).toBe(5000);
+  });
+});
+
+describe("saturated store with manually verified pins (#7 review)", () => {
+  it("never evicts a manually verified pin; new keys are not pinned and grade first-contact", () => {
+    // Fill the store to cap with manually verified pins.
+    for (let i = 0; i < KEY_BOOK_MAX_PINS; i += 1) {
+      const num = 0x05000000 + i;
+      observeNodeKey(ACCT, num, b64(0x40 + (i % 100)), "nodeinfo");
+      markNodeKeyManuallyVerified(ACCT, num);
+    }
+    const before = getNodeKeyPin(ACCT, 0x05000000);
+    expect(before?.manuallyVerified).toBe(true);
+
+    // One more new key at the cap: no eviction, no pin, first-contact grade.
+    const newcomer = 0x06000000;
+    const obs = observeNodeKey(ACCT, newcomer, b64(0x77), "nodeinfo");
+    expect(obs?.status).toBe("saturated");
+    expect(getNodeKeyPin(ACCT, newcomer)).toBeNull();
+    // The first (verified) pin is still there — nothing was evicted.
+    expect(getNodeKeyPin(ACCT, 0x05000000)?.publicKey).toBe(before?.publicKey);
+    const identity = senderIdentityFromObservation(obs!);
+    expect(identity.grade).toBe("pki-verified");
+    expect(identity.firstContact).toBe(true);
+    expect(identity.detail).toContain("saturated");
+  }, 60000);
+
+  it("tombstones store the full key, not just a fingerprint", () => {
+    const victim = consistentNum(0x61);
+    observeNodeKey(ACCT, victim, b64(0x61), "pki-packet");
+    for (let i = 0; i <= KEY_BOOK_MAX_PINS; i += 1) {
+      observeNodeKey(ACCT, 0x07000000 + i, b64(0x40 + (i % 100)), "nodeinfo");
+    }
+    expect(getNodeKeyPin(ACCT, victim)).toBeNull();
+    const tombstone = getKeyTombstone(ACCT, victim);
+    expect(tombstone?.key).toBe(b64(0x61));
+  }, 30000);
+
+  it("loads a v2 file with malformed evicted/repins entries, keeping valid ones", () => {
+    const victim = consistentNum(0x62);
+    const path = join(dir, "meshtastic-keys.json");
+    writeFileSync(
+      path,
+      JSON.stringify({
+        version: 2,
+        generatedAt: new Date().toISOString(),
+        accountId: ACCT,
+        pins: [],
+        evicted: [
+          { num: victim, key: b64(0x62), keyFp: "abcdef123456", evictedAt: 1000 },
+          { num: "not-a-number", keyFp: "zzz" },
+          { num: 0, keyFp: "drop-me" },
+          { num: 1234 },
+          "garbage",
+        ],
+        repins: [{ num: victim, lastRepinAt: 5000 }, { num: -1, lastRepinAt: 1 }, null],
+      }),
+    );
+    resetNodeBookForTests();
+    setKeyBookPathForTests(path);
+    setNodeBookPathForTests(join(dir, "meshtastic-nodes.json"));
+
+    expect(getKeyTombstone(ACCT, victim)?.key).toBe(b64(0x62));
+    expect(getRepinMarker(ACCT, victim)).toBe(5000);
+    // A different key under the tombstoned number stays mismatch.
+    const spoofed = observeNodeKey(ACCT, victim, b64(0x63), "nodeinfo");
+    expect(spoofed?.status).toBe("mismatch");
+    // The same key restores continuity.
+    const restored = observeNodeKey(ACCT, victim, b64(0x62), "nodeinfo");
+    expect(restored?.status).toBe("match");
   });
 });

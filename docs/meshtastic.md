@@ -381,9 +381,14 @@ pins behind the [sender-identity grades](#sender-identity-trust-model).
   reachable over the air, the tombstone is the security property that
   matters: if the same key returns, continuity is restored; if a *different*
   key appears under that number, the node grades `mismatch` — a fresh
-  first-seen pin is never granted after an eviction. Manually verified pins
-  are never evicted at all, which makes `pkiManuallyVerified` your defense
-  against pin-flood eviction for high-value contacts.
+  first-seen pin is granted after an eviction while the tombstone is
+  retained (the tombstone store is bounded, so a very patient flood can age a
+  tombstone out; the fresh pin that follows still carries `firstContact`, so
+  gating consumers can refuse continuity). Manually verified pins are never
+  evicted while any evictable pin exists; if the store is saturated entirely
+  with verified pins, new keys are not pinned (logged) and grade as first
+  contact — verified anchors are never dropped. `pkiManuallyVerified` is
+  therefore your defense against pin-flood eviction for high-value contacts.
 - **Rotation remediation:** list the node in `channels.meshtastic.pkiRepin`
   and restart/reload the channel to clear its pin (logged); the next
   observed key re-pins. The action is idempotent: after the pin has been

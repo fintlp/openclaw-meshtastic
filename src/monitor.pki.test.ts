@@ -8,6 +8,7 @@ import {
   crc32ForNodeKey,
   flushNodeBookWrites,
   getNodeKeyPin,
+  getRepinMarker,
   observeNodeKey,
   resetNodeBookForTests,
   setKeyBookPathForTests,
@@ -580,6 +581,43 @@ describe("security rework (#7 review)", () => {
     expect(clearCalls).toHaveLength(0);
     expect(getNodeKeyPin("default", num)).not.toBeNull();
 
+    second.abortController.abort();
+    await second.monitorPromise;
+  });
+
+  it("prunes the pkiRepin marker end-to-end when the entry is removed (wiring test)", async () => {
+    const num = consistentNum(0x56);
+    const nodeId = `!${num.toString(16).padStart(8, "0")}`;
+    const baseAccount = {
+      accountId: "default",
+      configured: true,
+      transport: "tcp" as const,
+      host: "192.0.2.10",
+      port: 4403,
+      config: {
+        dmPolicy: "pairing",
+        allowFrom: [],
+        groupPolicy: "disabled",
+        channels: [0],
+      },
+    };
+
+    // First connect: the node is listed in pkiRepin, so a marker is recorded.
+    resolveMeshtasticAccountMock.mockReturnValue({
+      ...baseAccount,
+      config: { ...baseAccount.config, pkiRepin: [nodeId] },
+    });
+    observeNodeKey("default", num, Buffer.from(key(0x56)).toString("base64"), "pki-packet");
+    const first = await startWith();
+    expect(getRepinMarker("default", num)).toBeTypeOf("number");
+    first.abortController.abort();
+    await first.monitorPromise;
+
+    // Second connect with the entry removed: the marker must be pruned by the
+    // monitor itself (a deleted pruneRepinMarkers call would leave it set).
+    resolveMeshtasticAccountMock.mockReturnValue(baseAccount);
+    const second = await startWith();
+    expect(getRepinMarker("default", num)).toBeUndefined();
     second.abortController.abort();
     await second.monitorPromise;
   });

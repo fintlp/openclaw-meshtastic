@@ -14,7 +14,7 @@ Features
 
 Security
 
-- **Pin-flood eviction closed before it could become a bypass.** The keybook is capped at 2000 pins, and a full store is reachable over the air by flooding NodeInfo adverts — which could otherwise evict a victim's pin and let an attacker win a fresh first-seen pin under the victim's node number. Evicted pins now leave a bounded **tombstone**: the same key returning restores continuity, a different key under that number grades `mismatch` until an operator re-pin, and a fresh first-seen pin is never granted after an eviction. Manually verified pins are never evicted. Found by adversarial review before release, with a PoC; the regression test reproduces the exploit shape.
+- **Pin-flood eviction closed before it could become a bypass.** The keybook is capped at 2000 pins, and a full store is reachable over the air by flooding NodeInfo adverts — which could otherwise evict a victim's pin and let an attacker win a fresh first-seen pin under the victim's node number. Evicted pins now leave a bounded **tombstone**: the same key returning restores continuity, a different key under that number grades `mismatch` until an operator re-pin, and a fresh first-seen pin is never granted after an eviction. Manually verified pins are never evicted while any evictable pin exists; a store saturated entirely with verified pins pins no new keys (logged) rather than dropping a verified anchor. Found by adversarial review before release, with a PoC; the regression test reproduces the exploit shape.
 
 - **Provenance is consumed once.** The decoded-packet identity map (keyed by `(from, id)`) deletes each entry when it is read, so a recycled packet id can never re-read a previous packet's grade.
 
