@@ -148,8 +148,24 @@ type KeyPin = {
   manuallyVerified: boolean;
 };
 
+/**
+ * Eviction tombstone (issue #7 security fix). Remembering what a pin WAS when
+ * it is evicted closes the pin-flood attack: an attacker who floods the pin
+ * store to evict a victim's pin could otherwise re-advertise under the
+ * victim's node number with an attacker-held key and win a fresh first-seen
+ * pin graded pki-verified. With a tombstone, the SAME key re-verifies, and a
+ * DIFFERENT key is a mismatch until the operator re-pins (pkiRepin).
+ */
+type KeyTombstone = {
+  num: number;
+  /** Fingerprint of the evicted pin's key. */
+  keyFp: string;
+  /** Epoch seconds. */
+  evictedAt: number;
+};
+
 type MeshtasticKeyBookFile = {
-  version: 1;
+  version: 2;
   generatedAt: string;
   accountId: string;
   pins: Array<{
@@ -159,6 +175,10 @@ type MeshtasticKeyBookFile = {
     lastSeenAt: number;
     manuallyVerified: boolean;
   }>;
+  /** Eviction tombstones (bounded) — see the doc comment on KeyTombstone. */
+  evicted: Array<{ num: number; keyFp: string; evictedAt: number }>;
+  /** Last operator re-pin time per node (epoch seconds), for idempotency. */
+  repins: Array<{ num: number; lastRepinAt: number }>;
 };
 
 /**
@@ -167,9 +187,13 @@ type MeshtasticKeyBookFile = {
  * re-opened TOFU window, so it must never happen silently.
  */
 export const KEY_BOOK_MAX_PINS = 2000;
+/** Tombstones outlive the pins they describe; generous so flood eviction is not lost. */
+export const KEY_TOMBSTONE_MAX = 5000;
 const KEY_MISMATCH_MAX_RECORDS = 50;
 
 const keyPins = new Map<string, Map<number, KeyPin>>();
+const keyTombstones = new Map<string, Map<number, KeyTombstone>>();
+const keyRepinMarkers = new Map<string, Map<number, number>>();
 const keyPinsLoaded = new Set<string>();
 const keyMismatches = new Map<string, MeshtasticKeyMismatch[]>();
 /** Dedupe: only log/save a mismatch when the (node, observed, pinned) triple changes. */
@@ -528,13 +552,102 @@ function pinsFor(accountId: string): Map<number, KeyPin> {
   }
   if (!keyPinsLoaded.has(accountId)) {
     keyPinsLoaded.add(accountId);
-    for (const pin of readKeyBookPins(accountId)) {
+    const file = readKeyBookFile(accountId);
+    for (const pin of file.pins) {
       if (!pins.has(pin.num)) {
         pins.set(pin.num, pin);
       }
     }
+    const tombstones = new Map<number, KeyTombstone>();
+    for (const tombstone of file.evicted) {
+      tombstones.set(tombstone.num, tombstone);
+    }
+    keyTombstones.set(accountId, tombstones);
+    const markers = new Map<number, number>();
+    for (const marker of file.repins) {
+      markers.set(marker.num, marker.lastRepinAt);
+    }
+    keyRepinMarkers.set(accountId, markers);
   }
   return pins;
+}
+
+/** Eviction tombstones for an account (ensures the key book is loaded first). */
+function tombstonesFor(accountId: string): Map<number, KeyTombstone> {
+  pinsFor(accountId);
+  let tombstones = keyTombstones.get(accountId);
+  if (!tombstones) {
+    tombstones = new Map();
+    keyTombstones.set(accountId, tombstones);
+  }
+  return tombstones;
+}
+
+/** Operator re-pin markers (epoch seconds) for an account. */
+function repinMarkersFor(accountId: string): Map<number, number> {
+  pinsFor(accountId);
+  let markers = keyRepinMarkers.get(accountId);
+  if (!markers) {
+    markers = new Map();
+    keyRepinMarkers.set(accountId, markers);
+  }
+  return markers;
+}
+
+function recordTombstone(accountId: string, num: number, keyFp: string): void {
+  const tombstones = tombstonesFor(accountId);
+  tombstones.delete(num);
+  tombstones.set(num, { num, keyFp, evictedAt: Math.floor(Date.now() / 1000) });
+  while (tombstones.size > KEY_TOMBSTONE_MAX) {
+    const oldest = tombstones.keys().next().value;
+    if (oldest === undefined) {
+      break;
+    }
+    tombstones.delete(oldest);
+  }
+}
+
+/** Last operator re-pin time for a node (epoch seconds), when recorded. */
+export function getRepinMarker(accountId: string, num: number): number | undefined {
+  return repinMarkersFor(accountId).get(num);
+}
+
+/** Record that the operator re-pinned a node (idempotency marker, persisted). */
+export function setRepinMarker(accountId: string, num: number, atSeconds: number): void {
+  if (!validNodeNum(num) || !finite(atSeconds)) {
+    return;
+  }
+  repinMarkersFor(accountId).set(num, atSeconds);
+  markChanged(accountId);
+}
+
+/**
+ * Drop re-pin markers whose node is no longer listed in pkiRepin, so removing
+ * the entry and later re-adding it re-arms a second legitimate rotation.
+ * Returns how many markers were removed.
+ */
+export function pruneRepinMarkers(accountId: string, keepNums: Set<number>): number {
+  const markers = repinMarkersFor(accountId);
+  let removed = 0;
+  for (const num of [...markers.keys()]) {
+    if (!keepNums.has(num)) {
+      markers.delete(num);
+      removed += 1;
+    }
+  }
+  if (removed > 0) {
+    markChanged(accountId);
+  }
+  return removed;
+}
+
+/** Eviction tombstone for a node, when one exists (surfaced for tests/tools). */
+export function getKeyTombstone(
+  accountId: string,
+  num: number,
+): { keyFp: string; evictedAt: number } | null {
+  const tombstone = tombstonesFor(accountId).get(num);
+  return tombstone ? { keyFp: tombstone.keyFp, evictedAt: tombstone.evictedAt } : null;
 }
 
 function emitKeyEvent(line: string): void {
@@ -606,9 +719,16 @@ function evictPinIfNeeded(accountId: string, pins: Map<number, KeyPin>): void {
   }
   if (candidate) {
     pins.delete(candidate.num);
+    const bytes = base64ToKeyBytes(candidate.publicKey);
+    recordTombstone(
+      accountId,
+      candidate.num,
+      bytes ? meshtasticKeyFingerprint(bytes) : "unknown",
+    );
     emitKeyEvent(
       `[${accountId}] pki pin store full — evicted pin for ${formatMeshtasticNodeId(candidate.num)} ` +
-        `(least recently seen); its next contact re-pins (TOFU window)`,
+        `(least recently seen); the same key re-verifies on return, a different key stays ` +
+        `unverified until an operator re-pin (pkiRepin)`,
     );
   }
 }
@@ -638,6 +758,36 @@ export function observeNodeKey(
 
   const existing = pins.get(num);
   if (!existing) {
+    const tombstone = tombstonesFor(accountId).get(num);
+    if (tombstone) {
+      if (tombstone.keyFp === keyFp) {
+        // The same key the evicted pin held: restore continuity instead of
+        // reopening first-seen. Legitimate eviction + return keeps working.
+        evictPinIfNeeded(accountId, pins);
+        pins.set(num, {
+          num,
+          publicKey,
+          firstSeenAt: nowSeconds,
+          lastSeenAt: nowSeconds,
+          manuallyVerified: false,
+        });
+        tombstonesFor(accountId).delete(num);
+        markChanged(accountId);
+        return { status: "match", keyFp, crc32Anomaly };
+      }
+      // A DIFFERENT key under a number whose pin was evicted: possible pin
+      // flood. Never a fresh first-seen pin — the operator must re-pin.
+      recordMismatch({
+        accountId,
+        nodeNum: num,
+        nodeId: formatMeshtasticNodeId(num),
+        pinnedKeyFp: tombstone.keyFp,
+        observedKeyFp: keyFp,
+        source,
+        at: Date.now(),
+      });
+      return { status: "mismatch", keyFp, pinnedKeyFp: tombstone.keyFp, crc32Anomaly };
+    }
     evictPinIfNeeded(accountId, pins);
     pins.set(num, {
       num,
@@ -702,14 +852,22 @@ export function clearNodeKeyPin(accountId: string, num: number): string | null {
   }
   const pins = pinsFor(accountId);
   const existing = pins.get(num);
-  if (!existing) {
+  const tombstone = tombstonesFor(accountId).get(num);
+  if (!existing && !tombstone) {
     return null;
   }
-  pins.delete(num);
+  if (existing) {
+    pins.delete(num);
+  }
+  if (tombstone) {
+    // A re-pin must also clear the eviction tombstone, or the next observation
+    // would keep grading mismatch forever.
+    tombstonesFor(accountId).delete(num);
+  }
   lastMismatchTriple.delete(accountId);
-  const bytes = base64ToKeyBytes(existing.publicKey);
   markChanged(accountId);
-  return bytes ? meshtasticKeyFingerprint(bytes) : "unknown";
+  const bytes = existing ? base64ToKeyBytes(existing.publicKey) : null;
+  return existing ? (bytes ? meshtasticKeyFingerprint(bytes) : "unknown") : null;
 }
 
 /** Operator manual verification: mark the pinned key as out-of-band confirmed. */
@@ -756,13 +914,19 @@ export function senderIdentityFromObservation(obs: NodeKeyObservation): Meshtast
     return {
       grade: "mismatch",
       keyFp: obs.keyFp,
-      detail: `key changed (pinned fp=${obs.pinnedKeyFp ?? "unknown"}) — admitted unverified`,
+      // Policy-neutral: the admission outcome (admit-unverified vs drop) is
+      // decided by pkiMismatch in the inbound path, not here.
+      detail: `key changed (pinned fp=${obs.pinnedKeyFp ?? "unknown"})`,
     };
   }
   if (obs.status === "pinned") {
     return {
       grade: "pki-verified",
       keyFp: obs.keyFp,
+      // Explicit first-contact marker: consumers that gate consequential work
+      // must be able to distinguish a pin that won a first-contact race from
+      // one with established continuity, without parsing `detail`.
+      firstContact: true,
       detail: crcNote ? `first-seen pin (TOFU); ${crcNote}` : "first-seen pin (TOFU)",
     };
   }
@@ -841,7 +1005,7 @@ export function keyBookPath(accountId: string): string {
 export function writeNodeBook(accountId: string): void {
   const path = nodeBookPath(accountId);
   const tmp = `${path}.tmp`;
-  mkdirSync(dirname(path), { recursive: true });
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   // 0600: the file holds other people's positions.
   writeFileSync(tmp, `${JSON.stringify(buildNodeBook(accountId), null, 2)}\n`, { mode: 0o600 });
   renameSync(tmp, path);
@@ -860,46 +1024,84 @@ export function writeKeyBook(accountId: string): void {
       manuallyVerified: pin.manuallyVerified,
     }));
   const file: MeshtasticKeyBookFile = {
-    version: 1,
+    version: 2,
     generatedAt: new Date().toISOString(),
     accountId,
     pins,
+    evicted: [...tombstonesFor(accountId).values()].sort((a, b) => a.num - b.num),
+    repins: [...repinMarkersFor(accountId).entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([num, lastRepinAt]) => ({ num, lastRepinAt })),
   };
-  mkdirSync(dirname(path), { recursive: true });
+  // 0700: the key book is the trust anchor for sender identity.
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   // 0600: public keys are not secrets, but this file is the trust anchor for
   // sender identity — it must not be casually rewritable.
   writeFileSync(tmp, `${JSON.stringify(file, null, 2)}\n`, { mode: 0o600 });
   renameSync(tmp, path);
 }
 
-/** Load and validate pins from disk; corrupt files/entries yield nothing. */
-function readKeyBookPins(accountId: string): KeyPin[] {
+/**
+ * Load and validate the key book from disk; corrupt files/entries yield
+ * nothing. Version 1 files (pins only) load with empty tombstones/repins.
+ */
+function readKeyBookFile(accountId: string): {
+  pins: KeyPin[];
+  evicted: KeyTombstone[];
+  repins: Array<{ num: number; lastRepinAt: number }>;
+} {
+  const empty = { pins: [], evicted: [], repins: [] };
   let parsed: unknown;
   try {
     parsed = JSON.parse(readFileSync(keyBookPath(accountId), "utf8"));
   } catch {
-    return [];
+    return empty;
   }
-  const raw = (parsed as { pins?: unknown } | null)?.pins;
-  if (!Array.isArray(raw)) {
-    return [];
+  if (!parsed || typeof parsed !== "object") {
+    return empty;
   }
+  const doc = parsed as Record<string, unknown>;
   const pins: KeyPin[] = [];
-  for (const entry of raw) {
-    if (!entry || typeof entry !== "object") continue;
-    const e = entry as Record<string, unknown>;
-    if (!validNodeNum(e.num)) continue;
-    const keyBytes = typeof e.publicKey === "string" ? base64ToKeyBytes(e.publicKey) : null;
-    if (!keyBytes) continue;
-    pins.push({
-      num: e.num,
-      publicKey: e.publicKey as string,
-      firstSeenAt: finite(e.firstSeenAt) && e.firstSeenAt > 0 ? e.firstSeenAt : 0,
-      lastSeenAt: finite(e.lastSeenAt) && e.lastSeenAt > 0 ? e.lastSeenAt : 0,
-      manuallyVerified: e.manuallyVerified === true,
-    });
+  if (Array.isArray(doc.pins)) {
+    for (const entry of doc.pins) {
+      if (!entry || typeof entry !== "object") continue;
+      const e = entry as Record<string, unknown>;
+      if (!validNodeNum(e.num)) continue;
+      const keyBytes = typeof e.publicKey === "string" ? base64ToKeyBytes(e.publicKey) : null;
+      if (!keyBytes) continue;
+      pins.push({
+        num: e.num,
+        publicKey: e.publicKey as string,
+        firstSeenAt: finite(e.firstSeenAt) && e.firstSeenAt > 0 ? e.firstSeenAt : 0,
+        lastSeenAt: finite(e.lastSeenAt) && e.lastSeenAt > 0 ? e.lastSeenAt : 0,
+        manuallyVerified: e.manuallyVerified === true,
+      });
+    }
   }
-  return pins;
+  const evicted: KeyTombstone[] = [];
+  if (Array.isArray(doc.evicted)) {
+    for (const entry of doc.evicted) {
+      if (!entry || typeof entry !== "object") continue;
+      const e = entry as Record<string, unknown>;
+      if (!validNodeNum(e.num) || typeof e.keyFp !== "string" || !e.keyFp) continue;
+      evicted.push({
+        num: e.num,
+        keyFp: e.keyFp,
+        evictedAt: finite(e.evictedAt) ? e.evictedAt : 0,
+      });
+      if (evicted.length >= KEY_TOMBSTONE_MAX) break;
+    }
+  }
+  const repins: Array<{ num: number; lastRepinAt: number }> = [];
+  if (Array.isArray(doc.repins)) {
+    for (const entry of doc.repins) {
+      if (!entry || typeof entry !== "object") continue;
+      const e = entry as Record<string, unknown>;
+      if (!validNodeNum(e.num) || !finite(e.lastRepinAt)) continue;
+      repins.push({ num: e.num, lastRepinAt: e.lastRepinAt });
+    }
+  }
+  return { pins, evicted, repins };
 }
 
 export function readNodeBook(accountId: string): MeshtasticNodeBookFile | undefined {
@@ -998,6 +1200,8 @@ export function resetNodeBookForTests(): void {
   selfNums.clear();
   recentEvictions.clear();
   keyPins.clear();
+  keyTombstones.clear();
+  keyRepinMarkers.clear();
   keyPinsLoaded.clear();
   keyMismatches.clear();
   lastMismatchTriple.clear();

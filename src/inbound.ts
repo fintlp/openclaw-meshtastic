@@ -453,6 +453,7 @@ export async function handleMeshtasticInbound(params: {
             payload: {
               grade: message.senderIdentity.grade,
               ...(message.senderIdentity.keyFp ? { keyFp: message.senderIdentity.keyFp } : {}),
+              ...(message.senderIdentity.firstContact ? { firstContact: true } : {}),
               ...(message.senderIdentity.detail
                 ? { detail: message.senderIdentity.detail }
                 : {}),

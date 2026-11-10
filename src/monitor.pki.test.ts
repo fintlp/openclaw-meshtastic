@@ -448,3 +448,139 @@ describe("monitor PKI sender identity (issue #7)", () => {
     await monitorPromise;
   });
 });
+describe("security rework (#7 review)", () => {
+  async function startWith(opts: {
+    onMessage?: (message: MeshtasticInboundMessage, handle: unknown) => Promise<void>;
+  } = {}) {
+    const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    // Self-contained runtime mock so a test can start the monitor more than
+    // once (reconnect simulation) regardless of test ordering.
+    getMeshtasticRuntimeMock.mockReturnValue({
+      config: { current: () => ({ channels: { meshtastic: { host: "192.0.2.10" } } }) },
+      logging: {
+        getChildLogger: () => ({ info: vi.fn(), error: vi.fn(), debug: vi.fn() }),
+        shouldLogVerbose: () => false,
+      },
+      channel: { activity: { record: vi.fn() } },
+    });
+    const { handle, subs } = createHandle();
+    connectMeshtasticDeviceMock.mockResolvedValue(handle);
+    const abortController = new AbortController();
+    const monitorPromise = monitorMeshtasticProvider({
+      config: { channels: { meshtastic: { host: "192.0.2.10" } } } as CoreConfig,
+      runtime: { log: vi.fn(), error: vi.fn() } as never,
+      abortSignal: abortController.signal,
+      ...(opts.onMessage ? { onMessage: opts.onMessage as never } : {}),
+    });
+    await vi.waitFor(() => expect(handle.configure).toHaveBeenCalled());
+    return { consoleLogSpy, subs, handle, abortController, monitorPromise };
+  }
+
+  function fireTyped(subs: Record<string, Handler[]>, packet: Record<string, unknown>): void {
+    for (const fn of subs.onMessagePacket ?? []) {
+      fn(packet as never);
+    }
+  }
+
+  it("consumes provenance once — a recycled (from,id) can never re-read a grade", async () => {
+    const { subs, abortController, monitorPromise } = await startWith();
+    const num = consistentNum(0x51);
+
+    fireRawMeshPacket(subs, decodedPkiPacket({ id: 7001, from: num, publicKey: key(0x51) }));
+    fireTyped(subs, typedTextPacket({ id: 7001, from: num }));
+    const first = await lastInboundMessage();
+    expect(first.senderIdentity?.grade).toBe("pki-verified");
+
+    // Same (from,id) again with NO fresh raw packet: the entry was consumed.
+    inboundMock.mockClear();
+    fireTyped(subs, typedTextPacket({ id: 7001, from: num }));
+    const second = await lastInboundMessage();
+    expect(second.senderIdentity?.grade).toBe("psk-grade");
+
+    abortController.abort();
+    await monitorPromise;
+  });
+
+  it("applies pkiMismatch=drop to the onMessage dispatch path too", async () => {
+    resolveMeshtasticAccountMock.mockReturnValue({
+      accountId: "default",
+      configured: true,
+      transport: "tcp" as const,
+      host: "192.0.2.10",
+      port: 4403,
+      config: {
+        dmPolicy: "pairing",
+        allowFrom: [],
+        groupPolicy: "disabled",
+        channels: [0],
+        pkiMismatch: "drop",
+      },
+    });
+    const seen: MeshtasticInboundMessage[] = [];
+    const { consoleLogSpy, subs, abortController, monitorPromise } = await startWith({
+      onMessage: async (message) => {
+        seen.push(message);
+      },
+    });
+    const num = consistentNum(0x52);
+    // Pin the honest key first, then present a conflicting one.
+    fireRawMeshPacket(subs, decodedPkiPacket({ id: 7002, from: num, publicKey: key(0x52) }));
+    fireRawMeshPacket(subs, decodedPkiPacket({ id: 7003, from: num, publicKey: key(0x53) }));
+    fireTyped(subs, typedTextPacket({ id: 7003, from: num }));
+
+    await vi.waitFor(() =>
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining("pkiMismatch=drop")),
+    );
+    expect(seen).toHaveLength(0);
+
+    abortController.abort();
+    await monitorPromise;
+  });
+
+  it("pkiRepin clears a pin once and stays idempotent across reconnects", async () => {
+    const num = consistentNum(0x54);
+    const nodeId = `!${num.toString(16).padStart(8, "0")}`;
+    resolveMeshtasticAccountMock.mockReturnValue({
+      accountId: "default",
+      configured: true,
+      transport: "tcp" as const,
+      host: "192.0.2.10",
+      port: 4403,
+      config: {
+        dmPolicy: "pairing",
+        allowFrom: [],
+        groupPolicy: "disabled",
+        channels: [0],
+        pkiRepin: [nodeId],
+      },
+    });
+    // A pin exists from an earlier run.
+    observeNodeKey("default", num, Buffer.from(key(0x54)).toString("base64"), "pki-packet");
+
+    const first = await startWith();
+    expect(getNodeKeyPin("default", num)).toBeNull();
+    expect(first.consoleLogSpy).toHaveBeenCalledWith(
+      expect.stringContaining("pkiRepin: cleared key pin"),
+    );
+
+    // The node re-advertises its rotated key (new pin after the clear).
+    observeNodeKey("default", num, Buffer.from(key(0x55)).toString("base64"), "nodeinfo");
+    expect(getNodeKeyPin("default", num)).not.toBeNull();
+
+    first.abortController.abort();
+    await first.monitorPromise;
+
+    // A reconnect must NOT clear the freshly re-learned pin. (vi.spyOn returns
+    // the SAME spy on a second call, so compare calls made after this point.)
+    const callsBeforeReconnect = first.consoleLogSpy.mock.calls.length;
+    const second = await startWith();
+    const clearCalls = second.consoleLogSpy.mock.calls
+      .slice(callsBeforeReconnect)
+      .filter((call) => String(call[0]).includes("pkiRepin: cleared key pin"));
+    expect(clearCalls).toHaveLength(0);
+    expect(getNodeKeyPin("default", num)).not.toBeNull();
+
+    second.abortController.abort();
+    await second.monitorPromise;
+  });
+});

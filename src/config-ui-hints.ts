@@ -71,6 +71,6 @@ export const meshtasticChannelConfigUiHints = {
   },
   pkiManuallyVerified: {
     label: "PKI Manually Verified Keys",
-    help: "Node ids whose pinned keys you have confirmed out-of-band. Applied at channel start to pins that exist at that moment; informational in this release (surfaced in the node book, does not change admission by itself).",
+    help: "Node ids whose pinned keys you have confirmed out-of-band. Applied at channel start to pins that exist at that moment; surfaced on the pin and in the node book. These pins are never evicted when the key store fills — the only in-product defense against pin-flood eviction, so list high-value contacts here.",
   },
 } satisfies Record<string, ChannelConfigUiHint>;

@@ -10,10 +10,12 @@ import {
   crc32ForNodeKey,
   flushNodeBookWrites,
   getNodeKeyPin,
+  getRepinMarker,
   markNodeKeyManuallyVerified,
   meshtasticKeyBytesToBase64,
   meshtasticKeyFingerprint,
   observeNodeKey,
+  pruneRepinMarkers,
   readNodeBook,
   recentKeyMismatches,
   recordNodeInfo,
@@ -21,6 +23,7 @@ import {
   resetNodeBookForTests,
   senderIdentityFromObservation,
   setKeyBookPathForTests,
+  setRepinMarker,
   setKeyEventSink,
   setNodeBookPathForTests,
   writeKeyBook,
@@ -338,4 +341,141 @@ describe("pin store bound", () => {
     expect(getNodeKeyPin(ACCT, 0x02000000)?.publicKey).toBe(Buffer.from(evictVictimBytes).toString("base64"));
     expect(sink).toHaveBeenCalledWith(expect.stringContaining("evicted pin for"));
   }, 20000);
+});
+
+describe("eviction tombstones (#7 security)", () => {
+  it("does not re-verify a spoofed key after a pin-flood evicts the victim's pin (#7 BLOCKER regression)", () => {
+    const victim = consistentNum(0x21);
+    observeNodeKey(ACCT, victim, b64(0x21), "pki-packet");
+    expect(getNodeKeyPin(ACCT, victim)).not.toBeNull();
+
+    // Attacker floods the store with distinct fake nodes to force eviction of
+    // the least-recently-seen pin (the victim's).
+    for (let i = 0; i <= KEY_BOOK_MAX_PINS; i += 1) {
+      observeNodeKey(ACCT, 0x01000000 + i, b64(0x40 + (i % 100)), "nodeinfo");
+    }
+    expect(getNodeKeyPin(ACCT, victim)).toBeNull();
+
+    // Attacker re-advertises the victim's number with THEIR key.
+    const spoofed = observeNodeKey(ACCT, victim, b64(0x77), "nodeinfo");
+    expect(spoofed?.status).toBe("mismatch");
+    const identity = senderIdentityFromObservation(spoofed!);
+    expect(identity.grade).toBe("mismatch");
+    expect(identity.firstContact).toBeUndefined();
+    // No pin is created for the spoofed key.
+    expect(getNodeKeyPin(ACCT, victim)).toBeNull();
+
+    // Operator re-pin (legitimate rotation) clears the tombstone and re-arms.
+    clearNodeKeyPin(ACCT, victim);
+    const afterRepin = observeNodeKey(ACCT, victim, b64(0x77), "nodeinfo");
+    expect(afterRepin?.status).toBe("pinned");
+    expect(senderIdentityFromObservation(afterRepin!).firstContact).toBe(true);
+  }, 20000);
+
+  it("restores continuity when the evicted key returns unchanged", () => {
+    const victim = consistentNum(0x22);
+    observeNodeKey(ACCT, victim, b64(0x22), "pki-packet");
+    for (let i = 0; i <= KEY_BOOK_MAX_PINS; i += 1) {
+      observeNodeKey(ACCT, 0x02000000 + i, b64(0x40 + (i % 100)), "nodeinfo");
+    }
+    expect(getNodeKeyPin(ACCT, victim)).toBeNull();
+
+    const restored = observeNodeKey(ACCT, victim, b64(0x22), "nodeinfo");
+    expect(restored?.status).toBe("match");
+    const identity = senderIdentityFromObservation(restored!);
+    expect(identity.grade).toBe("pki-verified");
+    // A restored continuity is NOT a first contact.
+    expect(identity.firstContact).toBeUndefined();
+    expect(getNodeKeyPin(ACCT, victim)).not.toBeNull();
+  }, 20000);
+
+  it("persists tombstones across a restart and stays mismatch after reload", () => {
+    const victim = consistentNum(0x23);
+    observeNodeKey(ACCT, victim, b64(0x23), "pki-packet");
+    for (let i = 0; i <= KEY_BOOK_MAX_PINS; i += 1) {
+      observeNodeKey(ACCT, 0x03000000 + i, b64(0x40 + (i % 100)), "nodeinfo");
+    }
+    writeKeyBook(ACCT);
+    resetNodeBookForTests(); // fresh process
+    setKeyBookPathForTests(join(dir, "meshtastic-keys.json"));
+    setNodeBookPathForTests(join(dir, "meshtastic-nodes.json"));
+
+    const spoofed = observeNodeKey(ACCT, victim, b64(0x78), "nodeinfo");
+    expect(spoofed?.status).toBe("mismatch");
+    expect(senderIdentityFromObservation(spoofed!).grade).toBe("mismatch");
+  }, 20000);
+
+  it("loads a version-1 key book (pins only) without tombstones", () => {
+    const victim = consistentNum(0x24);
+    const path = join(dir, "meshtastic-keys.json");
+    writeFileSync(
+      path,
+      JSON.stringify({
+        version: 1,
+        generatedAt: new Date().toISOString(),
+        accountId: ACCT,
+        pins: [
+          {
+            num: victim,
+            publicKey: b64(0x24),
+            firstSeenAt: 1000,
+            lastSeenAt: 1000,
+            manuallyVerified: false,
+          },
+        ],
+      }),
+    );
+    resetNodeBookForTests();
+    setKeyBookPathForTests(path);
+    const obs = observeNodeKey(ACCT, victim, b64(0x24), "nodeinfo");
+    expect(obs?.status).toBe("match");
+  });
+});
+
+describe("first contact vs continuity (#7)", () => {
+  it("marks a brand-new pin firstContact and an established pin not", () => {
+    const num = consistentNum(0x31);
+    const first = observeNodeKey(ACCT, num, b64(0x31), "pki-packet");
+    expect(senderIdentityFromObservation(first!).firstContact).toBe(true);
+
+    const second = observeNodeKey(ACCT, num, b64(0x31), "pki-packet");
+    expect(second?.status).toBe("match");
+    const identity = senderIdentityFromObservation(second!);
+    expect(identity.grade).toBe("pki-verified");
+    expect(identity.firstContact).toBeUndefined();
+  });
+
+  it("keeps the mismatch detail policy-neutral (no admission claim)", () => {
+    const num = consistentNum(0x32);
+    observeNodeKey(ACCT, num, b64(0x32), "pki-packet");
+    const flip = observeNodeKey(ACCT, num, b64(0x33), "pki-packet");
+    const identity = senderIdentityFromObservation(flip!);
+    expect(identity.grade).toBe("mismatch");
+    expect(identity.detail).toContain("key changed");
+    expect(identity.detail).not.toContain("admitted");
+  });
+});
+
+describe("operator re-pin markers (#7)", () => {
+  it("records, persists and prunes re-pin markers", () => {
+    const a = consistentNum(0x41);
+    const b = consistentNum(0x42);
+    observeNodeKey(ACCT, a, b64(0x41), "pki-packet");
+    clearNodeKeyPin(ACCT, a);
+    setRepinMarker(ACCT, a, 5000);
+    setRepinMarker(ACCT, b, 5000);
+    expect(getRepinMarker(ACCT, a)).toBe(5000);
+
+    writeKeyBook(ACCT);
+    resetNodeBookForTests();
+    setKeyBookPathForTests(join(dir, "meshtastic-keys.json"));
+    setNodeBookPathForTests(join(dir, "meshtastic-nodes.json"));
+    expect(getRepinMarker(ACCT, a)).toBe(5000);
+
+    // Removing an entry from pkiRepin prunes its marker so a later re-add
+    // re-arms a second legitimate rotation.
+    expect(pruneRepinMarkers(ACCT, new Set([b]))).toBe(1);
+    expect(getRepinMarker(ACCT, a)).toBeUndefined();
+    expect(getRepinMarker(ACCT, b)).toBe(5000);
+  });
 });

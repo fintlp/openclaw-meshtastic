@@ -43,6 +43,13 @@ export type MeshtasticSenderIdentity = {
   grade: "pki-verified" | "psk-grade" | "mismatch";
   /** SHA-256 fingerprint prefix (12 hex chars) of the observed key, when known. */
   keyFp?: string;
+  /**
+   * True only when this key was just first observed (a brand-new pin). An
+   * attacker can win a first-contact race, so consumers gating consequential
+   * actions must require continuity (firstContact absent) — never parse
+   * `detail` to distinguish the two.
+   */
+  firstContact?: boolean;
   /** Short machine-safe detail, e.g. "first-seen pin (TOFU)" or "key changed". */
   detail?: string;
 };

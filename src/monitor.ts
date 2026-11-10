@@ -14,11 +14,15 @@ import { formatMeshtasticChannelTarget, formatMeshtasticNodeId } from "./normali
 import {
   clearNodeKeyPin,
   flushNodeBookWrites,
+  getNodeKeyPin,
+  getRepinMarker,
   markNodeKeyManuallyVerified,
   meshtasticKeyBytesToBase64,
   observeNodeKey,
+  pruneRepinMarkers,
   senderIdentityFromObservation,
   setKeyEventSink,
+  setRepinMarker,
   subscribeNodeBook,
   type NodeKeyObservation,
 } from "./node-book.js";
@@ -215,9 +219,11 @@ export function monitorMeshtasticProvider(
 
     // Operator re-pin (key rotation remediation, issue #7): clear the stored
     // pins for configured nodes BEFORE the connect replay, so the replay (or
-    // the node's next advert) re-pins the rotated key. Entries are node ids;
-    // anything unparsable is refused loudly. Remove entries once the node
-    // verifies again — while listed, every restart re-opens first-seen.
+    // the node's next advert) re-pins the rotated key. IDEMPOTENT: a node
+    // whose pin was already re-learned after the last re-pin is skipped, so a
+    // transient reconnect never re-opens first-seen. Markers for nodes that
+    // are no longer listed are pruned, which re-arms a later re-addition.
+    const repinNums = new Set<number>();
     for (const entry of account.config.pkiRepin ?? []) {
       const num = parseMeshtasticNodeNum(String(entry));
       if (num === undefined) {
@@ -226,13 +232,25 @@ export function monitorMeshtasticProvider(
         );
         continue;
       }
+      repinNums.add(num);
+      const marker = getRepinMarker(account.accountId, num);
+      const currentPin = getNodeKeyPin(account.accountId, num);
+      if (marker !== undefined && currentPin && currentPin.firstSeenAt >= marker) {
+        logger.debug?.(
+          `[${account.accountId}] pkiRepin: pin for ${formatMeshtasticNodeId(num)} was already ` +
+            `re-learned after the last re-pin — nothing to clear`,
+        );
+        continue;
+      }
       const clearedFp = clearNodeKeyPin(account.accountId, num);
+      setRepinMarker(account.accountId, num, Math.floor(Date.now() / 1000));
       console.log(
         clearedFp
           ? `[${account.accountId}] pkiRepin: cleared key pin for ${formatMeshtasticNodeId(num)} (was fp=${clearedFp}); next observed key re-pins (TOFU)`
           : `[${account.accountId}] pkiRepin: no stored pin for ${formatMeshtasticNodeId(num)} (nothing to clear)`,
       );
     }
+    pruneRepinMarkers(account.accountId, repinNums);
 
     // Packet provenance map (issue #7), keyed by (from, id) — NEVER by bare
     // packet id: ids are per-node rolling counters, unique to neither sender
@@ -261,7 +279,13 @@ export function monitorMeshtasticProvider(
       }
     };
     const senderIdentityFor = (from: number, id: number): MeshtasticSenderIdentity => {
-      const prov = packetProvenance.get(provenanceKey(from, id));
+      const key = provenanceKey(from, id);
+      const prov = packetProvenance.get(key);
+      if (prov) {
+        // Consume the entry: a grade is never re-read by a later packet that
+        // recycles the same (from, id). One packet, one graded read.
+        packetProvenance.delete(key);
+      }
       if (!prov || !prov.pkiEncrypted) {
         // Channel-PSK or cleartext provenance (or the HTTP transport, whose
         // decryption path is not wired here): convenience-grade identity.
@@ -352,6 +376,18 @@ export function monitorMeshtasticProvider(
           direction: "inbound",
           at: message.timestamp,
         });
+        if (
+          message.senderIdentity?.grade === "mismatch" &&
+          (account.config.pkiMismatch ?? "unverified") === "drop"
+        ) {
+          // Same policy gate as handleMeshtasticInbound, so no dispatch path —
+          // including a custom onMessage consumer — can skip it.
+          console.log(
+            `[${account.accountId}] meshtastic: drop ${message.isGroup ? "group" : "DM"} sender ${message.senderId} ` +
+              `(pki key mismatch: ${message.senderIdentity.detail ?? "key changed"}; pkiMismatch=drop)`,
+          );
+          return;
+        }
         if (opts.onMessage) {
           await opts.onMessage(message, handle);
           return;

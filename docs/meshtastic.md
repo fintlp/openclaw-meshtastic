@@ -376,14 +376,22 @@ pins behind the [sender-identity grades](#sender-identity-trust-model).
   Gateway log line, bounded in-memory mismatch record).
 - The store survives gateway restarts and radio-side node-DB evictions (the
   radio re-TOFUs on eviction; this store does not). It is capped at 2000
-  pins; at the cap the least-recently-seen pin is evicted with a log line —
-  a lost pin is a re-opened first-contact window, so it never happens
-  silently.
+  pins; at the cap the least-recently-seen pin is evicted with a log line and
+  a **tombstone** remembers which key it held. Because a full store is
+  reachable over the air, the tombstone is the security property that
+  matters: if the same key returns, continuity is restored; if a *different*
+  key appears under that number, the node grades `mismatch` — a fresh
+  first-seen pin is never granted after an eviction. Manually verified pins
+  are never evicted at all, which makes `pkiManuallyVerified` your defense
+  against pin-flood eviction for high-value contacts.
 - **Rotation remediation:** list the node in `channels.meshtastic.pkiRepin`
   and restart/reload the channel to clear its pin (logged); the next
-  observed key re-pins. Remove the entry afterwards — while listed, every
-  restart re-opens first-seen. `pkiManuallyVerified` marks pinned keys you
-  have confirmed out-of-band.
+  observed key re-pins. The action is idempotent: after the pin has been
+  re-learned, further restarts do not clear it again (a persisted re-pin
+  marker skips the node). Remove the entry when you are done; removing it
+  also clears the marker, so a later re-addition re-arms a second rotation.
+  `pkiManuallyVerified` marks pinned keys you have confirmed out-of-band;
+  those pins are exempt from eviction.
 
 **Privacy.** The file holds other people's positions (written with mode
 0600). Keep it out of shared folders, and do not let mesh DM sessions read it

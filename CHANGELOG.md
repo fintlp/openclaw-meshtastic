@@ -6,6 +6,20 @@ This fork (`fintlp/openclaw-meshtastic`) is the maintained line; upstream
 (`skrashevich/openclaw-meshtastic`) has been dormant since May 2026. Fixes
 are offered upstream as PRs. Date-based versioning: `2026.M.P`.
 
+## Unreleased
+
+Features
+
+- **Node-PKI sender identity, phase 1 (#7).** Inbound messages now carry a structured `senderIdentity` grade — `pki-verified`, `psk-grade`, or `mismatch` — plus a key fingerprint. `pki-verified` means the attached radio AEAD-decrypted the packet with the key its node DB pins for that sender number **and** the plugin keybook has continuity for that key. New plugin-side **keybook** (`state/meshtastic-keys*.json`, mode 0600) pins first-seen keys, survives restarts and radio-side nodeDB eviction, and never adopts a conflicting key silently: a key change produces a `mismatch` grade, an agent-visible downgrade annotation, and a distinct Gateway log line. Brand-new pins carry an explicit `firstContact` marker so consumers that gate consequential actions can distinguish a first-contact pin from established continuity. New `channels.meshtastic.pkiMismatch` (`unverified` default, or `drop`) decides whether a mismatched sender is admitted unverified or refused. New `channels.meshtastic.pkiRepin` clears stored pins for legitimate rotation; the action is idempotent across reconnects. `channels.meshtastic.pkiManuallyVerified` records out-of-band-confirmed keys, and those pins are exempt from eviction. Packets the node cannot decrypt are still refused fail-closed. Phase 2 (in-plugin X25519/AES-CCM) remains open on #7.
+
+Security
+
+- **Pin-flood eviction closed before it could become a bypass.** The keybook is capped at 2000 pins, and a full store is reachable over the air by flooding NodeInfo adverts — which could otherwise evict a victim's pin and let an attacker win a fresh first-seen pin under the victim's node number. Evicted pins now leave a bounded **tombstone**: the same key returning restores continuity, a different key under that number grades `mismatch` until an operator re-pin, and a fresh first-seen pin is never granted after an eviction. Manually verified pins are never evicted. Found by adversarial review before release, with a PoC; the regression test reproduces the exploit shape.
+
+- **Provenance is consumed once.** The decoded-packet identity map (keyed by `(from, id)`) deletes each entry when it is read, so a recycled packet id can never re-read a previous packet's grade.
+
+- **`pkiMismatch=drop` applies to every dispatch path**, including a custom `onMessage` consumer, not only the built-in inbound handler.
+
 ## 2026.10.34 - 2026-11-10
 
 Fixes
