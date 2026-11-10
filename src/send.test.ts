@@ -233,6 +233,83 @@ describe("sendMessageMeshtastic", () => {
     expect(result.target).toBe("!00000002");
   });
 
+  it("logs one INFO line on a successful DM send, with target and char count but never the body (#24)", async () => {
+    const sendText = vi.fn(async () => 99);
+    const handle = {
+      accountId: "default",
+      myNodeNum: 123,
+      device: { sendText },
+    };
+    getMeshtasticDeviceMock.mockReturnValue(handle);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      const body = "hello dm body that must stay out of the logs";
+      const result = await sendMessageMeshtastic("!00000002", body, {
+        cfg: createConfig(),
+        ackWaitMs: 50,
+      });
+
+      expect(log).toHaveBeenCalledTimes(1);
+      const line = String(log.mock.calls[0]?.[0]);
+      expect(line).toBe(
+        `[default] outbound dm to !00000002 id=${result.messageId} (${body.length} chars)`,
+      );
+      expect(line).not.toContain(body);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("logs one INFO line on a successful opted-in group send, without the body (#24)", async () => {
+    const sendText = vi.fn(async () => 101);
+    const handle = {
+      accountId: "default",
+      myNodeNum: 123,
+      device: { sendText },
+    };
+    getMeshtasticDeviceMock.mockReturnValue(handle);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      const body = "fleet update body that must stay out of the logs";
+      const result = await sendMessageMeshtastic("channel:0", body, {
+        cfg: createConfig({ groupTransmit: true }),
+        ackWaitMs: 50,
+      });
+
+      expect(log).toHaveBeenCalledTimes(1);
+      const line = String(log.mock.calls[0]?.[0]);
+      expect(line).toBe(
+        `[default] outbound group to channel:0 id=${result.messageId} (${body.length} chars)`,
+      );
+      expect(line).not.toContain(body);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("logs no outbound line when a send is refused before airing (#24)", async () => {
+    const sendText = vi.fn(async () => 101);
+    const handle = {
+      accountId: "default",
+      myNodeNum: 123,
+      device: { sendText },
+    };
+    getMeshtasticDeviceMock.mockReturnValue(handle);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      await expect(
+        sendMessageMeshtastic("channel:0", "never aired", { cfg: createConfig() }),
+      ).rejects.toThrow(/receive-only/);
+
+      expect(sendText).not.toHaveBeenCalled();
+      expect(log).not.toHaveBeenCalled();
+    } finally {
+      log.mockRestore();
+      warn.mockRestore();
+    }
+  });
+
   it("does not split surrogate pairs when chunking text", async () => {
     const sendText = vi.fn(async () => 101);
     const handle = {

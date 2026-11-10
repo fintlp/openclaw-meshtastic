@@ -54,6 +54,22 @@ type MeshtasticSendDevice = MeshtasticDeviceHandle["device"] & {
   };
 };
 
+/**
+ * Outbound log line — mirrors formatInboundLogLine in monitor.ts: target +
+ * char count, never the message body (privacy parity with the inbound
+ * line, issue #24).
+ */
+export function formatOutboundLogLine(params: {
+  accountId: string;
+  target: string;
+  messageId: string;
+  text: string;
+  isGroup: boolean;
+}): string {
+  const kind = params.isGroup ? "group" : "dm";
+  return `[${params.accountId}] outbound ${kind} to ${params.target} id=${params.messageId} (${params.text.length} chars)`;
+}
+
 function recordMeshtasticOutboundActivity(accountId: string): void {
   try {
     getMeshtasticRuntime().channel.activity.record({
@@ -457,6 +473,19 @@ export async function sendMessageMeshtastic(
 
   const messageId =
     lastPacketId > 0 ? String(lastPacketId) : `fallback:${generateFallbackTimestampId()}`;
+  // console.log, not logger.info: the plugin child logger's info lines never
+  // reach gateway.log (same reason as the inbound line in monitor.ts).
+  // Outbound sends are airtime evidence and must be auditable; the message
+  // body is never logged (issue #24).
+  console.log(
+    formatOutboundLogLine({
+      accountId: account.accountId,
+      target,
+      messageId,
+      text,
+      isGroup: isMeshtasticGroupTarget(target),
+    }),
+  );
   return {
     messageId,
     target,
