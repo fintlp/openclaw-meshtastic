@@ -6,6 +6,14 @@ This fork (`fintlp/openclaw-meshtastic`) is the maintained line; upstream
 (`skrashevich/openclaw-meshtastic`) has been dormant since May 2026. Fixes
 are offered upstream as PRs. Date-based versioning: `2026.M.P`.
 
+## 2026.10.34 - 2026-11-10
+
+Fixes
+
+- **Unknown mesh packets no longer spam ERROR (#25).** Firmware 2.7.x nodes broadcast portnums the bundled @meshtastic/core 2.6.7 cannot decode — NODE_STATUS_APP (36), added to the upstream protobufs after the 2.6.7 enum was generated — and every such packet surfaced a library ERROR through the stream path. A new guard wraps the device packet handler at the plugin boundary: the known unknown-variant throw becomes one DEBUG line (packet id + portnum, no payload), every other error still throws, and the receive pipeline (node book, dispatch) sees the packets exactly as before. Tests run against a real MeshDevice, including a future-variant shape.
+- **Successful outbound sends log one INFO line, symmetric to inbound (#24).** [account] outbound dm|group to TARGET id=… (N chars) — trimmed count, never the body — fires once per message after all chunks air, never per chunk (pinned multi-chunk on both the DM and group paths). If a chunk fails mid-message after earlier chunks aired, one PARTIAL audit line records the target and k/N chunks aired before rethrowing; zero-aired failures and every refusal stay log-free.
+- **Node-book dedup pinned by regression tests (#20).** The meshcore #64 incident shape (fixture contacts duplicated in a live book) is now test-pinned here: one record per node id across repeated adverts on all four event paths, no growth across full connect replays, no duplicate ids in the persisted file. Test isolation was verified already closed by the v2026.10.33 guard; no production code changed for this item.
+
 ## 2026.10.33 - 2026-11-10
 
 Security
