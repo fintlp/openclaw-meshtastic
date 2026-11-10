@@ -969,7 +969,9 @@ export function senderIdentityFromObservation(obs: NodeKeyObservation): Meshtast
       grade: "pki-verified",
       keyFp: obs.keyFp,
       firstContact: true,
-      detail: "key store saturated with manually verified pins — key not pinned; no continuity",
+      detail: crcNote
+        ? `key store saturated with manually verified pins — key not pinned; no continuity; ${crcNote}`
+        : "key store saturated with manually verified pins — key not pinned; no continuity",
     };
   }
   if (obs.status === "pinned") {

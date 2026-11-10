@@ -550,3 +550,101 @@ describe("saturated store with manually verified pins (#7 review)", () => {
     expect(restored?.status).toBe("match");
   });
 });
+
+describe("tombstone compare precedence and fallbacks (#7 review nits)", () => {
+  it("prefers full-key bytes over the fingerprint when a tombstone carries both (byte-compare mutation target)", () => {
+    // Crafted inconsistent tombstone: key=A but keyFp=fp(B). With byte
+    // comparison, observing B is a mismatch; with fp-only comparison it would
+    // wrongly restore continuity.
+    const victim = consistentNum(0x71);
+    const path = join(dir, "meshtastic-keys.json");
+    const keyA = b64(0x71);
+    const keyB = b64(0x72);
+    const fpB = meshtasticKeyFingerprint(key(0x72));
+    writeFileSync(
+      path,
+      JSON.stringify({
+        version: 2,
+        generatedAt: new Date().toISOString(),
+        accountId: ACCT,
+        pins: [],
+        evicted: [{ num: victim, key: keyA, keyFp: fpB, evictedAt: 1000 }],
+        repins: [],
+      }),
+    );
+    resetNodeBookForTests();
+    setKeyBookPathForTests(path);
+    setNodeBookPathForTests(join(dir, "meshtastic-nodes.json"));
+
+    const obs = observeNodeKey(ACCT, victim, keyB, "nodeinfo");
+    expect(obs?.status).toBe("mismatch");
+    expect(getNodeKeyPin(ACCT, victim)).toBeNull();
+    // And key A, matching the stored full key, restores continuity.
+    const obsA = observeNodeKey(ACCT, victim, keyA, "nodeinfo");
+    expect(obsA?.status).toBe("match");
+  });
+
+  it("legacy fp-only tombstone restores the same key and rejects a different one", () => {
+    const victim = consistentNum(0x73);
+    const path = join(dir, "meshtastic-keys.json");
+    const keyA = b64(0x73);
+    const fpA = meshtasticKeyFingerprint(key(0x73));
+    writeFileSync(
+      path,
+      JSON.stringify({
+        version: 2,
+        generatedAt: new Date().toISOString(),
+        accountId: ACCT,
+        pins: [],
+        evicted: [{ num: victim, keyFp: fpA, evictedAt: 1000 }],
+        repins: [],
+      }),
+    );
+    resetNodeBookForTests();
+    setKeyBookPathForTests(path);
+    setNodeBookPathForTests(join(dir, "meshtastic-nodes.json"));
+
+    const same = observeNodeKey(ACCT, victim, keyA, "nodeinfo");
+    expect(same?.status).toBe("match");
+    // Clear everything, then observe a different key: fp differs -> mismatch.
+    resetNodeBookForTests();
+    setKeyBookPathForTests(path);
+    const other = observeNodeKey(ACCT, victim, b64(0x74), "nodeinfo");
+    expect(other?.status).toBe("mismatch");
+  });
+
+  it("a pin re-won after the tombstone is gone carries firstContact (the documented mitigation)", () => {
+    const victim = consistentNum(0x75);
+    observeNodeKey(ACCT, victim, b64(0x75), "pki-packet");
+    for (let i = 0; i <= KEY_BOOK_MAX_PINS; i += 1) {
+      observeNodeKey(ACCT, 0x08000000 + i, b64(0x40 + (i % 100)), "nodeinfo");
+    }
+    expect(getNodeKeyPin(ACCT, victim)).toBeNull();
+    expect(getKeyTombstone(ACCT, victim)).not.toBeNull();
+    // Operator re-pin clears pin AND tombstone (the age-out equivalent: no
+    // tombstone left to compare against).
+    clearNodeKeyPin(ACCT, victim);
+    expect(getKeyTombstone(ACCT, victim)).toBeNull();
+    // A fresh key under that number is a brand-new pin and MUST carry
+    // firstContact, so continuity-gating consumers can refuse it.
+    const fresh = observeNodeKey(ACCT, victim, b64(0x76), "nodeinfo");
+    expect(fresh?.status).toBe("pinned");
+    expect(senderIdentityFromObservation(fresh!).firstContact).toBe(true);
+  }, 30000);
+
+  it("surfaces the crc32 anomaly note on the saturated grade too", () => {
+    for (let i = 0; i < KEY_BOOK_MAX_PINS; i += 1) {
+      const num = 0x09000000 + i;
+      observeNodeKey(ACCT, num, b64(0x40 + (i % 100)), "nodeinfo");
+      markNodeKeyManuallyVerified(ACCT, num);
+    }
+    // 0x0a000001 deliberately mismatches the key's crc32 (anomaly case).
+    const obs = observeNodeKey(ACCT, 0x0a000001, b64(0x79), "nodeinfo");
+    expect(obs?.status).toBe("saturated");
+    expect(obs?.crc32Anomaly).toBe(true);
+    const identity = senderIdentityFromObservation(obs!);
+    expect(identity.detail).toContain("saturated");
+    expect(identity.detail).toContain("crc32");
+  }, 60000);
+});
+
