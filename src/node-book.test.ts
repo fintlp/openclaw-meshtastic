@@ -159,6 +159,52 @@ describe("positions", () => {
   });
 });
 
+describe("deduplication (#20)", () => {
+  it("keeps exactly one record per node id across repeated adverts on every event path", () => {
+    // Pins the incident shape from openclaw-meshcore #64: a node advertised
+    // over and over must exist exactly once. The book is keyed by node number
+    // and the id is derived from it, so re-adverts update in place.
+    recordNodeInfo(ACCT, { num: 0x0a, user: { longName: "Fixture Node", shortName: "FIXN" }, lastHeard: 1700000000 });
+    // The same node database replayed again on the next connect:
+    recordNodeInfo(ACCT, { num: 0x0a, user: { longName: "Fixture Node", shortName: "FIXN" }, lastHeard: 1700000100 });
+    recordUser(ACCT, { from: 0x0a, data: { longName: "Fixture Node" } });
+    recordPosition(ACCT, { from: 0x0a, data: { latitudeI: 400000000, longitudeI: -80000000 } });
+    recordMeshPacket(ACCT, { from: 0x0a, rxTime: 1790000000 }, 1790000100);
+    const book = buildNodeBook(ACCT);
+    expect(book.totalNodes).toBe(1);
+    expect(book.nodes.map((n) => n.id)).toEqual(["!0000000a"]);
+    expect(node(0x0a)).toMatchObject({ name: "Fixture Node", lat: 40, lon: -8, lastHeard: 1790000000 });
+  });
+
+  it("never grows the book when the same node database is replayed on every connect", () => {
+    const replay = () => {
+      for (let i = 1; i <= 50; i += 1) {
+        recordNodeInfo(ACCT, { num: i, user: { longName: `Node ${i}` }, lastHeard: 1700000000 + i });
+      }
+    };
+    replay();
+    replay();
+    replay();
+    const book = buildNodeBook(ACCT);
+    expect(book.totalNodes).toBe(50);
+    expect(new Set(book.nodes.map((n) => n.id)).size).toBe(50);
+  });
+
+  it("persists no duplicate node ids — one row per node in the written file", () => {
+    setNodeBookPathForTests(join(dir, "meshtastic-nodes.json"));
+    recordNodeInfo(ACCT, { num: 1, user: { longName: "One" } });
+    recordNodeInfo(ACCT, { num: 1, user: { longName: "One" } });
+    recordNodeInfo(ACCT, { num: 2, user: { longName: "Two" } });
+    recordMeshPacket(ACCT, { from: 1, rxTime: 1790000000 }, 1790000000);
+    flushNodeBookWrites();
+    const file = readNodeBook(ACCT)!;
+    expect(file.totalNodes).toBe(2);
+    const ids = file.nodes.map((n) => n.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids.filter((id) => id === "!00000001")).toHaveLength(1);
+  });
+});
+
 describe("snapshot", () => {
   it("marks the gateway's own node, lists it first, then most recently heard", () => {
     recordNodeInfo(ACCT, { num: 10, lastHeard: 100 });
