@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { clearOutboundEchoCache, isOutboundEcho } from "./echo-dedupe.js";
 import { clearSendRateLimitState } from "./rate-limit.js";
-import { sendMessageMeshtastic, sendTextWithoutBlockingForAck } from "./send.js";
+import { chunkUtf8, sendMessageMeshtastic, sendTextWithoutBlockingForAck } from "./send.js";
 import { UNICODE_CORPUS } from "./test-fixtures/unicode-corpus.js";
 import type { CoreConfig } from "./types.js";
 
@@ -307,6 +307,136 @@ describe("sendMessageMeshtastic", () => {
     } finally {
       log.mockRestore();
       warn.mockRestore();
+    }
+  });
+
+  it("logs exactly one INFO line for a multi-chunk send — once per message, never per chunk (#24)", async () => {
+    const sendText = vi.fn(async () => 99);
+    const handle = {
+      accountId: "default",
+      myNodeNum: 123,
+      device: { sendText },
+    };
+    getMeshtasticDeviceMock.mockReturnValue(handle);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      // 329 bytes at the default 200-byte chunk limit forces >=2 chunks.
+      const body = "multi-chunk body word ".repeat(15).trim();
+      const chunkCount = chunkUtf8(body, 200).length;
+      expect(chunkCount).toBeGreaterThanOrEqual(2);
+      const result = await sendMessageMeshtastic("!00000002", body, {
+        cfg: createConfig(),
+        ackWaitMs: 50,
+      });
+
+      expect(sendText).toHaveBeenCalledTimes(chunkCount);
+      expect(log).toHaveBeenCalledTimes(1);
+      const line = String(log.mock.calls[0]?.[0]);
+      expect(line).toBe(
+        `[default] outbound dm to !00000002 id=${result.messageId} (${body.length} chars)`,
+      );
+      expect(line).not.toContain(body);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("logs one PARTIAL INFO line and rethrows when a chunk fails after earlier chunks aired (#24)", async () => {
+    let calls = 0;
+    const sendText = vi.fn(async () => {
+      calls += 1;
+      if (calls === 2) {
+        throw new Error("radio write failed");
+      }
+      return 100 + calls;
+    });
+    const handle = {
+      accountId: "default",
+      myNodeNum: 123,
+      device: { sendText },
+    };
+    getMeshtasticDeviceMock.mockReturnValue(handle);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      // 344 bytes forces >=2 chunks; the second chunk send fails.
+      const body = "partial send body word ".repeat(15).trim();
+      const totalChunks = chunkUtf8(body, 200).length;
+      expect(totalChunks).toBeGreaterThanOrEqual(2);
+
+      await expect(
+        sendMessageMeshtastic("!00000002", body, {
+          cfg: createConfig(),
+          ackWaitMs: 50,
+        }),
+      ).rejects.toThrow(/radio write failed/);
+
+      expect(sendText).toHaveBeenCalledTimes(2);
+      expect(log).toHaveBeenCalledTimes(1);
+      const line = String(log.mock.calls[0]?.[0]);
+      expect(line).toBe(
+        `[default] outbound dm to !00000002 PARTIAL (1/${totalChunks} chunks aired before failure)`,
+      );
+      expect(line).not.toContain(body);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("logs nothing when the first chunk fails — zero chunks aired (#24)", async () => {
+    const sendText = vi.fn(async () => {
+      throw new Error("radio dead");
+    });
+    const handle = {
+      accountId: "default",
+      myNodeNum: 123,
+      device: { sendText },
+    };
+    getMeshtasticDeviceMock.mockReturnValue(handle);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      const body = "first chunk failure body ".repeat(15).trim();
+      expect(chunkUtf8(body, 200).length).toBeGreaterThanOrEqual(2);
+
+      await expect(
+        sendMessageMeshtastic("!00000002", body, {
+          cfg: createConfig(),
+          ackWaitMs: 50,
+        }),
+      ).rejects.toThrow(/radio dead/);
+
+      expect(sendText).toHaveBeenCalledTimes(1);
+      expect(log).not.toHaveBeenCalled();
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("logs the trimmed char count when the body has leading/trailing whitespace (#24)", async () => {
+    const sendText = vi.fn(async () => 99);
+    const handle = {
+      accountId: "default",
+      myNodeNum: 123,
+      device: { sendText },
+    };
+    getMeshtasticDeviceMock.mockReturnValue(handle);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      const trimmed = "hello trimmed body";
+      const body = `   ${trimmed}   `;
+      const result = await sendMessageMeshtastic("!00000002", body, {
+        cfg: createConfig(),
+        ackWaitMs: 50,
+      });
+
+      expect(sendText).toHaveBeenCalledTimes(1);
+      expect(log).toHaveBeenCalledTimes(1);
+      const line = String(log.mock.calls[0]?.[0]);
+      expect(line).toBe(
+        `[default] outbound dm to !00000002 id=${result.messageId} (${trimmed.length} chars)`,
+      );
+      expect(line).not.toContain(trimmed);
+    } finally {
+      log.mockRestore();
     }
   });
 
