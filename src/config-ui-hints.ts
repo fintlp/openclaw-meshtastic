@@ -61,4 +61,16 @@ export const meshtasticChannelConfigUiHints = {
     label: "Log Inbound Message Content",
     help: "When true, Gateway logs include up to 80 characters of inbound mesh text. Default is false (metadata only: sender, target, message id, length).",
   },
+  pkiMismatch: {
+    label: "PKI Mismatch Policy",
+    help: 'How a sender whose PKI provenance conflicts with the pinned keybook entry is admitted: "unverified" (default) admits the message marked unverified, "drop" refuses it. Mismatching senders are never admitted as pki-verified either way.',
+  },
+  pkiRepin: {
+    label: "PKI Re-Pin (Key Rotation)",
+    help: "Node ids whose stored key pins are cleared at channel start, so the node's next observed key re-pins (TOFU). Use only after a legitimate rotation (factory reset, replaced radio, re-imported private key) and remove the entry once the node verifies again — while listed, every restart re-opens first-seen.",
+  },
+  pkiManuallyVerified: {
+    label: "PKI Manually Verified Keys",
+    help: "Node ids whose pinned keys you have confirmed out-of-band. Applied at channel start to pins that exist at that moment; surfaced on the pin and in the node book. These pins are never evicted when the key store fills — the only in-product defense against pin-flood eviction, so list high-value contacts here.",
+  },
 } satisfies Record<string, ChannelConfigUiHint>;

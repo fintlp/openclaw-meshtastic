@@ -9,6 +9,7 @@ import {
 } from "openclaw/plugin-sdk/channel-config-schema";
 import { z } from "zod";
 import { meshtasticChannelConfigUiHints } from "./config-ui-hints.js";
+import { parseMeshtasticNodeNum } from "./normalize.js";
 
 const MeshtasticGroupSchema = z
   .object({
@@ -23,6 +24,16 @@ const MeshtasticGroupSchema = z
   .strict();
 
 const MeshtasticTransportSchema = z.enum(["http", "tcp", "serial"]);
+
+/** Node-id list for PKI operator actions (issue #7): each entry must parse as a real node id (never 0, never the broadcast number). */
+const MeshtasticNodeIdListSchema = z.array(z.string()).refine(
+  (entries) =>
+    entries.every((entry) => {
+      const num = parseMeshtasticNodeNum(entry);
+      return num !== undefined && num > 0 && num < 0xffffffff;
+    }),
+  { message: 'entries must be Meshtastic node ids (e.g. "!a1b2c3d4", "node:123", or decimal)' },
+);
 
 const MeshtasticAccountSchemaBase = z
   .object({
@@ -56,6 +67,9 @@ const MeshtasticAccountSchemaBase = z
       .strict()
       .optional(),
     logInboundMessageContent: z.boolean().optional(),
+    pkiMismatch: z.enum(["unverified", "drop"]).optional().default("unverified"),
+    pkiRepin: MeshtasticNodeIdListSchema.optional(),
+    pkiManuallyVerified: MeshtasticNodeIdListSchema.optional(),
     durability: z
       .object({
         enabled: z.boolean().optional(),

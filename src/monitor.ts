@@ -11,12 +11,27 @@ import { isOutboundEcho, rememberOutboundEcho } from "./echo-dedupe.js";
 import { handleMeshtasticInbound } from "./inbound.js";
 import { DEFAULT_DURABILITY_CONFIG, type DurabilityStore } from "./durability.js";
 import { formatMeshtasticChannelTarget, formatMeshtasticNodeId } from "./normalize.js";
-import { flushNodeBookWrites, subscribeNodeBook } from "./node-book.js";
+import {
+  clearNodeKeyPin,
+  flushNodeBookWrites,
+  getNodeKeyPin,
+  getRepinMarker,
+  markNodeKeyManuallyVerified,
+  meshtasticKeyBytesToBase64,
+  observeNodeKey,
+  pruneRepinMarkers,
+  senderIdentityFromObservation,
+  setKeyEventSink,
+  setRepinMarker,
+  subscribeNodeBook,
+  type NodeKeyObservation,
+} from "./node-book.js";
+import { parseMeshtasticNodeNum } from "./normalize.js";
 import { installUnknownVariantGuard } from "./unknown-variant-guard.js";
 import { formatMeshtasticEndpoint } from "./transport.js";
 import type { RuntimeEnv } from "./runtime-api.js";
 import { getMeshtasticRuntime } from "./runtime.js";
-import type { CoreConfig, MeshtasticInboundMessage } from "./types.js";
+import type { CoreConfig, MeshtasticInboundMessage, MeshtasticSenderIdentity } from "./types.js";
 
 type MeshtasticMonitorOptions = {
   accountId?: string;
@@ -62,7 +77,13 @@ export function formatInboundLogLine(params: {
 }): string {
   const kind = params.message.isGroup ? "group" : "dm";
   const prefix = params.decrypted ? "inbound (decrypted)" : "inbound";
-  const meta = `[${params.accountId}] ${prefix} ${kind} from ${params.message.senderId} on ${params.message.target} id=${params.message.messageId}`;
+  // Sender-identity grade (issue #7) rides the metadata line — fingerprint
+  // only, never a full key, and never message content.
+  const identity = params.message.senderIdentity;
+  const identityTag = identity
+    ? ` identity=${identity.grade}${identity.grade !== "psk-grade" && identity.keyFp ? `(${identity.keyFp})` : ""}`
+    : "";
+  const meta = `[${params.accountId}] ${prefix} ${kind} from ${params.message.senderId} on ${params.message.target} id=${params.message.messageId}${identityTag}`;
   if (!params.logMessageContent) {
     return `${meta} (${params.message.text.length} chars)`;
   }
@@ -82,6 +103,8 @@ type MeshtasticPacket = {
 export function buildInboundMessage(params: {
   packet: MeshtasticPacket;
   myNodeNum: number | null;
+  /** Structured sender-identity annotation (issue #7) — attached to the message, never to its text. */
+  senderIdentity?: MeshtasticSenderIdentity;
 }): MeshtasticInboundMessage | null {
   const text = params.packet.data?.trim() ?? "";
   if (!text) {
@@ -111,6 +134,7 @@ export function buildInboundMessage(params: {
     target,
     senderNodeNum: params.packet.from,
     senderId,
+    ...(params.senderIdentity ? { senderIdentity: params.senderIdentity } : {}),
     text,
     timestamp: params.packet.rxTime?.getTime?.() ?? Date.now(),
     isGroup,
@@ -188,6 +212,94 @@ export function monitorMeshtasticProvider(
       ),
     );
 
+    // Key book (#7): mismatches and pin evictions are security events. They
+    // go through console.log, not the child logger — the child logger's info
+    // lines never reach gateway.log (see the inbound-line comment below).
+    setKeyEventSink((line) => console.log(line));
+
+    // Operator re-pin (key rotation remediation, issue #7): clear the stored
+    // pins for configured nodes BEFORE the connect replay, so the replay (or
+    // the node's next advert) re-pins the rotated key. IDEMPOTENT: a node
+    // whose pin was already re-learned after the last re-pin is skipped, so a
+    // transient reconnect never re-opens first-seen. Markers for nodes that
+    // are no longer listed are pruned, which re-arms a later re-addition.
+    const repinNums = new Set<number>();
+    for (const entry of account.config.pkiRepin ?? []) {
+      const num = parseMeshtasticNodeNum(String(entry));
+      if (num === undefined) {
+        logger.debug?.(
+          `[${account.accountId}] pkiRepin entry ${JSON.stringify(entry)} is not a node id — ignored`,
+        );
+        continue;
+      }
+      repinNums.add(num);
+      const marker = getRepinMarker(account.accountId, num);
+      const currentPin = getNodeKeyPin(account.accountId, num);
+      if (marker !== undefined && currentPin && currentPin.firstSeenAt >= marker) {
+        logger.debug?.(
+          `[${account.accountId}] pkiRepin: pin for ${formatMeshtasticNodeId(num)} was already ` +
+            `re-learned after the last re-pin — nothing to clear`,
+        );
+        continue;
+      }
+      const clearedFp = clearNodeKeyPin(account.accountId, num);
+      setRepinMarker(account.accountId, num, Math.floor(Date.now() / 1000));
+      console.log(
+        clearedFp
+          ? `[${account.accountId}] pkiRepin: cleared key pin for ${formatMeshtasticNodeId(num)} (was fp=${clearedFp}); next observed key re-pins (TOFU)`
+          : `[${account.accountId}] pkiRepin: no stored pin for ${formatMeshtasticNodeId(num)} (nothing to clear)`,
+      );
+    }
+    pruneRepinMarkers(account.accountId, repinNums);
+
+    // Packet provenance map (issue #7), keyed by (from, id) — NEVER by bare
+    // packet id: ids are per-node rolling counters, unique to neither sender
+    // nor time. The library dispatches the raw onMeshPacket synchronously
+    // BEFORE the typed events (verified in @meshtastic/core 2.6.7
+    // handleMeshPacket), so the entry for a packet exists by the time its
+    // typed event is graded; the (from, id) key keeps that correct even if a
+    // future library refactor breaks the ordering invariant. Bounded LRU.
+    type PacketProvenance = {
+      pkiEncrypted: boolean;
+      publicKey?: string;
+      observation?: NodeKeyObservation;
+    };
+    const PROVENANCE_MAX_ENTRIES = 2000;
+    const packetProvenance = new Map<string, PacketProvenance>();
+    const provenanceKey = (from: number, id: number) => `${from}:${id}`;
+    const recordProvenance = (from: number, id: number, prov: PacketProvenance) => {
+      const key = provenanceKey(from, id);
+      packetProvenance.delete(key); // refresh recency
+      packetProvenance.set(key, prov);
+      if (packetProvenance.size > PROVENANCE_MAX_ENTRIES) {
+        const oldest = packetProvenance.keys().next().value;
+        if (oldest !== undefined) {
+          packetProvenance.delete(oldest);
+        }
+      }
+    };
+    const senderIdentityFor = (from: number, id: number): MeshtasticSenderIdentity => {
+      const key = provenanceKey(from, id);
+      const prov = packetProvenance.get(key);
+      if (prov) {
+        // Consume the entry: a grade is never re-read by a later packet that
+        // recycles the same (from, id). One packet, one graded read.
+        packetProvenance.delete(key);
+      }
+      if (!prov || !prov.pkiEncrypted) {
+        // Channel-PSK or cleartext provenance (or the HTTP transport, whose
+        // decryption path is not wired here): convenience-grade identity.
+        return { grade: "psk-grade" };
+      }
+      if (!prov.publicKey || !prov.observation) {
+        // A decoded pki_encrypted packet without sender-key provenance is
+        // anomalous (firmware 2.5+ always stamps it after a PKI decrypt) —
+        // surfaced as mismatch, never verified.
+        return { grade: "mismatch", detail: "pki_encrypted packet without public-key provenance" };
+      }
+      return senderIdentityFromObservation(prov.observation);
+    };
+
     const channelPsks = new Map<number, Uint8Array>();
 
     unsubscribers.push(
@@ -264,6 +376,18 @@ export function monitorMeshtasticProvider(
           direction: "inbound",
           at: message.timestamp,
         });
+        if (
+          message.senderIdentity?.grade === "mismatch" &&
+          (account.config.pkiMismatch ?? "unverified") === "drop"
+        ) {
+          // Same policy gate as handleMeshtasticInbound, so no dispatch path —
+          // including a custom onMessage consumer — can skip it.
+          console.log(
+            `[${account.accountId}] meshtastic: drop ${message.isGroup ? "group" : "DM"} sender ${message.senderId} ` +
+              `(pki key mismatch: ${message.senderIdentity.detail ?? "key changed"}; pkiMismatch=drop)`,
+          );
+          return;
+        }
         if (opts.onMessage) {
           await opts.onMessage(message, handle);
           return;
@@ -293,12 +417,35 @@ export function monitorMeshtasticProvider(
             channel: number;
             rxTime: number;
             pkiEncrypted?: boolean;
+            publicKey?: Uint8Array;
             payloadVariant: { case: string; value: unknown };
           }) => {
             opts.statusSink?.({
               lastEventAt: Date.now(),
               lastTransportActivityAt: Date.now(),
             });
+            if (meshPacket.payloadVariant.case === "decoded") {
+              // Issue #7: record provenance for the typed-event graders. The
+              // library strips pki_encrypted/public_key from typed metadata,
+              // but this raw event fires synchronously first (verified in
+              // @meshtastic/core 2.6.7 handleMeshPacket), so grading at
+              // onMessagePacket time is race-free. A PKI packet's key is
+              // first-seen-pinned here too (firmware-vouched provenance).
+              // Dropped encrypted+pki packets do NOT feed the keybook.
+              const pkiEncrypted = meshPacket.pkiEncrypted === true;
+              const publicKey = meshtasticKeyBytesToBase64(meshPacket.publicKey) ?? undefined;
+              const observation =
+                pkiEncrypted && publicKey
+                  ? (observeNodeKey(account.accountId, meshPacket.from, publicKey, "pki-packet") ??
+                    undefined)
+                  : undefined;
+              recordProvenance(meshPacket.from, meshPacket.id, {
+                pkiEncrypted,
+                publicKey,
+                observation,
+              });
+              return;
+            }
             if (meshPacket.payloadVariant.case !== "encrypted") {
               return;
             }
@@ -350,6 +497,9 @@ export function monitorMeshtasticProvider(
                 const message = buildInboundMessage({
                   packet: syntheticPacket,
                   myNodeNum: handle.myNodeNum,
+                  // Plugin-side channel-PSK decrypt: convenience-grade by
+                  // construction, no matter what flags the packet carried.
+                  senderIdentity: { grade: "psk-grade" },
                 });
                 if (!message) {
                   return;
@@ -377,6 +527,7 @@ export function monitorMeshtasticProvider(
             const message = buildInboundMessage({
               packet,
               myNodeNum: handle.myNodeNum,
+              senderIdentity: senderIdentityFor(packet.from, packet.id),
             });
             if (!message) {
               return;
@@ -456,6 +607,24 @@ export function monitorMeshtasticProvider(
     );
 
     await handle.configure();
+
+    // Operator manual-verification marks (issue #7), applied AFTER the
+    // connect replay so pins created by the replay are covered. Pins for
+    // nodes first heard later are marked at the next start while listed.
+    for (const entry of account.config.pkiManuallyVerified ?? []) {
+      const num = parseMeshtasticNodeNum(String(entry));
+      if (num === undefined) {
+        logger.debug?.(
+          `[${account.accountId}] pkiManuallyVerified entry ${JSON.stringify(entry)} is not a node id — ignored`,
+        );
+        continue;
+      }
+      if (markNodeKeyManuallyVerified(account.accountId, num)) {
+        console.log(
+          `[${account.accountId}] pki: key for ${formatMeshtasticNodeId(num)} marked manually verified (operator list)`,
+        );
+      }
+    }
 
     // console.log, not logger.info — child-logger info lines never reach
     // gateway.log (default 'info' level, no override; ctx.log and console.*

@@ -113,4 +113,28 @@ describe("meshtastic config schema", () => {
 
     expect(parsed.allowFrom).toEqual([12345, "!00000001"]);
   });
+
+  it("defaults pkiMismatch to unverified and accepts the drop policy (issue #7)", () => {
+    const def = expectValidConfig(MeshtasticConfigSchema.safeParse({}));
+    expect(def.pkiMismatch).toBe("unverified");
+    const drop = expectValidConfig(MeshtasticConfigSchema.safeParse({ pkiMismatch: "drop" }));
+    expect(drop.pkiMismatch).toBe("drop");
+    expectInvalidConfig(MeshtasticConfigSchema.safeParse({ pkiMismatch: "verify-anyway" }));
+  });
+
+  it("validates pkiRepin / pkiManuallyVerified entries as node ids (issue #7)", () => {
+    const ok = expectValidConfig(
+      MeshtasticConfigSchema.safeParse({
+        pkiRepin: ["!0a0b0c0d", "node:456", "789"],
+        pkiManuallyVerified: ["!00000002"],
+      }),
+    );
+    expect(ok.pkiRepin).toEqual(["!0a0b0c0d", "node:456", "789"]);
+    // Wildcards, broadcast, zero, channel targets and junk are refused.
+    expectInvalidConfig(MeshtasticConfigSchema.safeParse({ pkiRepin: ["*"] }));
+    expectInvalidConfig(MeshtasticConfigSchema.safeParse({ pkiRepin: ["!ffffffff"] }));
+    expectInvalidConfig(MeshtasticConfigSchema.safeParse({ pkiRepin: ["!00000000"] }));
+    expectInvalidConfig(MeshtasticConfigSchema.safeParse({ pkiRepin: ["channel:0"] }));
+    expectInvalidConfig(MeshtasticConfigSchema.safeParse({ pkiManuallyVerified: ["not-a-node"] }));
+  });
 });
