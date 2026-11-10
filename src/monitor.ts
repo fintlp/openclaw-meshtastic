@@ -12,6 +12,7 @@ import { handleMeshtasticInbound } from "./inbound.js";
 import { DEFAULT_DURABILITY_CONFIG, type DurabilityStore } from "./durability.js";
 import { formatMeshtasticChannelTarget, formatMeshtasticNodeId } from "./normalize.js";
 import { flushNodeBookWrites, subscribeNodeBook } from "./node-book.js";
+import { installUnknownVariantGuard } from "./unknown-variant-guard.js";
 import { formatMeshtasticEndpoint } from "./transport.js";
 import type { RuntimeEnv } from "./runtime-api.js";
 import { getMeshtasticRuntime } from "./runtime.js";
@@ -169,6 +170,11 @@ export function monitorMeshtasticProvider(
       baudRate: account.baudRate,
       autoConfigure: false,
     });
+
+    // Issue #25: downgrade the library's unknown-packet throw (e.g. portnum
+    // 36 NODE_STATUS_APP from firmware 2.7.x) to a DEBUG line before it can
+    // surface as a library ERROR through the stream path.
+    installUnknownVariantGuard(handle.device, logger, account.accountId);
 
     const allowedChannels = new Set(account.config.channels ?? [0]);
     const unsubscribers: Array<() => void> = [];
