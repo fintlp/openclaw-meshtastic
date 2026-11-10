@@ -54,6 +54,41 @@ type MeshtasticSendDevice = MeshtasticDeviceHandle["device"] & {
   };
 };
 
+/**
+ * Outbound log line — mirrors formatInboundLogLine in monitor.ts: target +
+ * char count, never the message body (privacy parity with the inbound
+ * line, issue #24). The count is of the TRIMMED text: chunkUtf8 trims
+ * before chunking and inbound trims before counting, so the logged count
+ * matches what actually airs.
+ */
+export function formatOutboundLogLine(params: {
+  accountId: string;
+  target: string;
+  messageId: string;
+  text: string;
+  isGroup: boolean;
+}): string {
+  const kind = params.isGroup ? "group" : "dm";
+  return `[${params.accountId}] outbound ${kind} to ${params.target} id=${params.messageId} (${params.text.trim().length} chars)`;
+}
+
+/**
+ * Partial-send sibling of formatOutboundLogLine: a chunk send failed after
+ * earlier chunks of the same message already aired. Airtime was used, so
+ * the operator gets one audit line — target, kind, and how many of how many
+ * chunks aired; never the body, no messageId (the send did not complete).
+ */
+export function formatOutboundPartialLogLine(params: {
+  accountId: string;
+  target: string;
+  isGroup: boolean;
+  airedChunks: number;
+  totalChunks: number;
+}): string {
+  const kind = params.isGroup ? "group" : "dm";
+  return `[${params.accountId}] outbound ${kind} to ${params.target} PARTIAL (${params.airedChunks}/${params.totalChunks} chunks aired before failure)`;
+}
+
 function recordMeshtasticOutboundActivity(accountId: string): void {
   try {
     getMeshtasticRuntime().channel.activity.record({
@@ -422,41 +457,76 @@ export async function sendMessageMeshtastic(
   const parsedReplyId = parseReplyPacketId(opts.replyTo);
 
   let lastPacketId = 0;
-  if (isMeshtasticGroupTarget(target)) {
-    const channelIndex = parseMeshtasticChannelIndex(target) ?? 0;
-    const channel = resolveChannelNumber(channelIndex);
-    for (const chunk of chunks) {
-      lastPacketId = await sendTextWithoutBlockingForAck({
-        handle,
-        text: chunk,
-        destination: "broadcast",
-        channel,
-        replyId: parsedReplyId,
-        ackWaitMs: opts.ackWaitMs,
-      });
+  let airedChunks = 0;
+  try {
+    if (isMeshtasticGroupTarget(target)) {
+      const channelIndex = parseMeshtasticChannelIndex(target) ?? 0;
+      const channel = resolveChannelNumber(channelIndex);
+      for (const chunk of chunks) {
+        lastPacketId = await sendTextWithoutBlockingForAck({
+          handle,
+          text: chunk,
+          destination: "broadcast",
+          channel,
+          replyId: parsedReplyId,
+          ackWaitMs: opts.ackWaitMs,
+        });
+        airedChunks += 1;
+      }
+    } else {
+      const nodeNum = parseMeshtasticNodeNum(target);
+      if (nodeNum === undefined || !isValidMeshtasticNodeNum(nodeNum)) {
+        throw new Error(
+          `Invalid Meshtastic node target: ${target} (valid node numbers are 1-4294967294; the reserved broadcast address and out-of-range values are refused — LoRa airtime rule)`,
+        );
+      }
+      for (const chunk of chunks) {
+        lastPacketId = await sendTextWithoutBlockingForAck({
+          handle,
+          text: chunk,
+          destination: nodeNum,
+          replyId: parsedReplyId,
+          ackWaitMs: opts.ackWaitMs,
+        });
+        airedChunks += 1;
+      }
     }
-  } else {
-    const nodeNum = parseMeshtasticNodeNum(target);
-    if (nodeNum === undefined || !isValidMeshtasticNodeNum(nodeNum)) {
-      throw new Error(
-        `Invalid Meshtastic node target: ${target} (valid node numbers are 1-4294967294; the reserved broadcast address and out-of-range values are refused — LoRa airtime rule)`,
+  } catch (err) {
+    // Airtime was already used when a mid-message chunk fails: leave one
+    // INFO audit line before rethrowing (issue #24). Zero-aired failures —
+    // first-chunk errors and every refusal above, which throw before the
+    // loop — stay log-free.
+    if (airedChunks > 0) {
+      console.log(
+        formatOutboundPartialLogLine({
+          accountId: account.accountId,
+          target,
+          isGroup: isMeshtasticGroupTarget(target),
+          airedChunks,
+          totalChunks: chunks.length,
+        }),
       );
     }
-    for (const chunk of chunks) {
-      lastPacketId = await sendTextWithoutBlockingForAck({
-        handle,
-        text: chunk,
-        destination: nodeNum,
-        replyId: parsedReplyId,
-        ackWaitMs: opts.ackWaitMs,
-      });
-    }
+    throw err;
   }
 
   recordMeshtasticOutboundActivity(account.accountId);
 
   const messageId =
     lastPacketId > 0 ? String(lastPacketId) : `fallback:${generateFallbackTimestampId()}`;
+  // console.log, not logger.info: the plugin child logger's info lines never
+  // reach gateway.log (same reason as the inbound line in monitor.ts).
+  // Outbound sends are airtime evidence and must be auditable; the message
+  // body is never logged (issue #24).
+  console.log(
+    formatOutboundLogLine({
+      accountId: account.accountId,
+      target,
+      messageId,
+      text,
+      isGroup: isMeshtasticGroupTarget(target),
+    }),
+  );
   return {
     messageId,
     target,
