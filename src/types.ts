@@ -24,6 +24,29 @@ import type { MeshtasticTransport } from "./transport.js";
 
 export type { MeshtasticTransport };
 
+/**
+ * Sender identity grade for an inbound message (issue #7, phase 1).
+ *
+ * - "pki-verified": the attached radio's firmware AEAD-decrypted this packet
+ *   with the per-node public key its node DB pins for the sender number, and
+ *   the plugin keybook has continuity for that key (first-seen pin or match).
+ * - "psk-grade": channel-PSK or cleartext provenance — the sender number is a
+ *   claim, not proof (anyone holding the channel PSK can forge it).
+ * - "mismatch": PKI-marked provenance that conflicts with the pinned key (or
+ *   carries no key material at all) — never treated as verified.
+ *
+ * Trust root: the grade certifies the ATTACHED RADIO'S claim about the
+ * packet, not physical reality. A compromised gateway-side radio can assert
+ * any of it. Key fingerprints, never full keys, appear in logs.
+ */
+export type MeshtasticSenderIdentity = {
+  grade: "pki-verified" | "psk-grade" | "mismatch";
+  /** SHA-256 fingerprint prefix (12 hex chars) of the observed key, when known. */
+  keyFp?: string;
+  /** Short machine-safe detail, e.g. "first-seen pin (TOFU)" or "key changed". */
+  detail?: string;
+};
+
 export type MeshtasticAccountConfig = {
   name?: string;
   enabled?: boolean;
@@ -64,6 +87,29 @@ export type MeshtasticAccountConfig = {
     leaseMs?: number;
     dbPath?: string;
   };
+  /**
+   * PKI key-mismatch policy (issue #7): how a sender whose PKI provenance
+   * conflicts with the pinned keybook entry is admitted. "unverified"
+   * (default) admits the message marked unverified; "drop" refuses it.
+   * Either way it is never admitted as pki-verified, and tier-3 actions must
+   * fail closed on a mismatch regardless of this setting.
+   */
+  pkiMismatch?: "unverified" | "drop";
+  /**
+   * Operator re-pin list (key rotation remediation, issue #7): node ids whose
+   * stored key pins are cleared at channel start, so the node's next observed
+   * key re-pins (TOFU). Use ONLY after a legitimate rotation (factory reset,
+   * replaced radio, re-imported private key); remove the entry once the node
+   * verifies again — while listed, every restart re-opens first-seen.
+   */
+  pkiRepin?: string[];
+  /**
+   * Operator manual-verification list (issue #7): node ids whose pinned keys
+   * are marked manually verified at channel start (the out-of-band ceremony
+   * already happened). Informational in phase 1 — recorded on the pin and
+   * surfaced in the node book; does not change admission by itself.
+   */
+  pkiManuallyVerified?: string[];
   /** When true, inbound info logs include up to 80 characters of message text (default: metadata only). */
   logInboundMessageContent?: boolean;
   chunkMode?: "length" | "newline";
@@ -89,6 +135,8 @@ export type MeshtasticInboundMessage = {
   target: string;
   senderNodeNum: number;
   senderId: string;
+  /** Structured sender-identity annotation (issue #7). Rides the message object — never concatenated into text — and survives durability persistence. */
+  senderIdentity?: MeshtasticSenderIdentity;
   text: string;
   timestamp: number;
   isGroup: boolean;

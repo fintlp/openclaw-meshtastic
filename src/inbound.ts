@@ -343,6 +343,22 @@ export async function handleMeshtasticInbound(params: {
     return;
   }
 
+  // PKI mismatch policy (issue #7): a sender whose PKI provenance conflicts
+  // with the pinned keybook entry is NEVER admitted as verified. Default
+  // "unverified" admits the message carrying its downgrade marker; "drop"
+  // refuses it here, after all ordinary admission gates, before durability
+  // intake. Tier-3 actions must fail closed on mismatch regardless.
+  if (
+    message.senderIdentity?.grade === "mismatch" &&
+    (account.config.pkiMismatch ?? "unverified") === "drop"
+  ) {
+    runtime.log?.(
+      `meshtastic: drop ${message.isGroup ? "group" : "DM"} sender ${message.senderId} ` +
+        `(pki key mismatch: ${message.senderIdentity.detail ?? "key changed"}; pkiMismatch=drop)`,
+    );
+    return;
+  }
+
   // Durability intake + claim (#8): session-bound frames are logged as
   // admitted (admission is decided above) and claimed with a lease BEFORE any
   // dispatch work. Attempts count at claim, so process deaths and crash loops
@@ -424,6 +440,43 @@ export async function handleMeshtasticInbound(params: {
 
   const groupSystemPrompt = groupMatch.groupConfig?.systemPrompt?.trim() || undefined;
 
+  // Sender identity (issue #7) rides the envelope as STRUCTURED channel
+  // context — the same spoof-proof mechanism as the replay tag below — never
+  // string-concatenated into the message text where a sender could forge it.
+  const structuredContext = [
+    ...(message.senderIdentity
+      ? [
+          {
+            label: "Meshtastic Sender Identity",
+            source: "meshtastic",
+            type: "mesh_sender_identity",
+            payload: {
+              grade: message.senderIdentity.grade,
+              ...(message.senderIdentity.keyFp ? { keyFp: message.senderIdentity.keyFp } : {}),
+              ...(message.senderIdentity.detail
+                ? { detail: message.senderIdentity.detail }
+                : {}),
+            },
+          },
+        ]
+      : []),
+    ...(params.replayOf !== undefined
+      ? [
+          {
+            label: "Meshtastic Replay",
+            source: "meshtastic",
+            type: "mesh_replay",
+            payload: {
+              replayed: true,
+              receivedAt: params.replayReceivedAt ?? message.timestamp,
+              senderTs: message.timestamp,
+              replayedAt: Date.now(),
+            },
+          },
+        ]
+      : []),
+  ];
+
   const ctxPayload = core.channel.reply.finalizeInboundContext({
     Body: body,
     RawBody: rawBody,
@@ -450,21 +503,7 @@ export async function handleMeshtasticInbound(params: {
     CommandAuthorized: commandAuthorized,
     ReplyToId: message.replyToId,
     ChannelStructuredContext:
-      params.replayOf !== undefined
-        ? [
-            {
-              label: "Meshtastic Replay",
-              source: "meshtastic",
-              type: "mesh_replay",
-              payload: {
-                replayed: true,
-                receivedAt: params.replayReceivedAt ?? message.timestamp,
-                senderTs: message.timestamp,
-                replayedAt: Date.now(),
-              },
-            },
-          ]
-        : undefined,
+      structuredContext.length > 0 ? structuredContext : undefined,
   });
 
   try {

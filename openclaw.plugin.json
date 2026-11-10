@@ -333,6 +333,26 @@
           "logInboundMessageContent": {
             "type": "boolean"
           },
+          "pkiMismatch": {
+            "default": "unverified",
+            "type": "string",
+            "enum": [
+              "unverified",
+              "drop"
+            ]
+          },
+          "pkiRepin": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "pkiManuallyVerified": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "durability": {
             "type": "object",
             "properties": {
@@ -697,6 +717,26 @@
                 "logInboundMessageContent": {
                   "type": "boolean"
                 },
+                "pkiMismatch": {
+                  "default": "unverified",
+                  "type": "string",
+                  "enum": [
+                    "unverified",
+                    "drop"
+                  ]
+                },
+                "pkiRepin": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "pkiManuallyVerified": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
                 "durability": {
                   "type": "object",
                   "properties": {
@@ -744,7 +784,8 @@
                 "transport",
                 "dmPolicy",
                 "groupPolicy",
-                "groupTransmit"
+                "groupTransmit",
+                "pkiMismatch"
               ],
               "additionalProperties": false
             }
@@ -757,7 +798,8 @@
           "transport",
           "dmPolicy",
           "groupPolicy",
-          "groupTransmit"
+          "groupTransmit",
+          "pkiMismatch"
         ],
         "additionalProperties": false
       },
@@ -821,6 +863,18 @@
         "logInboundMessageContent": {
           "label": "Log Inbound Message Content",
           "help": "When true, Gateway logs include up to 80 characters of inbound mesh text. Default is false (metadata only: sender, target, message id, length)."
+        },
+        "pkiMismatch": {
+          "label": "PKI Mismatch Policy",
+          "help": "How a sender whose PKI provenance conflicts with the pinned keybook entry is admitted: \"unverified\" (default) admits the message marked unverified, \"drop\" refuses it. Mismatching senders are never admitted as pki-verified either way."
+        },
+        "pkiRepin": {
+          "label": "PKI Re-Pin (Key Rotation)",
+          "help": "Node ids whose stored key pins are cleared at channel start, so the node's next observed key re-pins (TOFU). Use only after a legitimate rotation (factory reset, replaced radio, re-imported private key) and remove the entry once the node verifies again — while listed, every restart re-opens first-seen."
+        },
+        "pkiManuallyVerified": {
+          "label": "PKI Manually Verified Keys",
+          "help": "Node ids whose pinned keys you have confirmed out-of-band. Applied at channel start to pins that exist at that moment; informational in this release (surfaced in the node book, does not change admission by itself)."
         }
       }
     }

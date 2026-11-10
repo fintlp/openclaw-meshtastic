@@ -157,23 +157,39 @@ received from the device.
 
 ### Sender identity (trust model)
 
-AES-CTR decrypts; it does **not** authenticate. Neither the sender nor the ciphertext is
-verified on this path:
+AES-CTR decrypts; it does **not** authenticate. Since firmware 2.5, per-node PKI direct
+messages add a second mechanism: the radio AEAD-decrypts them with the sender key pinned
+in its own node DB and stamps the packet `pki_encrypted` plus the sender's public key.
+Every inbound message is annotated with a structured **sender-identity grade** (channel
+context next to the sender id, never part of the message text):
 
-- **Channel traffic:** the `from` number in a decrypted channel packet is a claim, not
-  proof. Any holder of the channel PSK can forge any sender number; on the factory-default
-  PSK (`AQ==`) channel, anyone in range can. Treat channel sender identity as
-  convenience-grade.
-- **Direct messages on a PSK channel:** same grade — decrypted with the shared channel
-  key, sender field unverified. PKI-encrypted direct messages (per-node keys, firmware
-  2.5+) are recognized and refused with a log line on this path — never mis-decrypted
-  with the channel key; per-node PKI support is tracked as issue #7. The HTTP transport
-  hands decryption to the node/library stack (its trust properties are the node's; not
-  verified against live firmware here — apply the same policy discipline either way).
+- **`psk-grade`** — channel-PSK or cleartext provenance. The `from` number is a claim,
+  not proof: any holder of the channel PSK can forge any sender number, and on the
+  factory-default PSK (`AQ==`) channel anyone in range can. Convenience-grade, always.
+- **`pki-verified`** — the radio AEAD-decrypted the packet with the pinned per-node key,
+  and the plugin keybook has continuity for that key (first-seen pin, every later
+  sighting must match). Trust root: this certifies the *attached radio's claim* — a
+  compromised gateway-side radio can assert it undetectably. It inherits the TOFU
+  windows (first-contact race, radio-side eviction re-learn, the weak crc32 number
+  binding on firmware 2.8+). See the README section "Sender identity" for the full
+  limits before relying on this grade.
+- **`mismatch`** — the PKI provenance conflicts with the pinned key (or has no key
+  material): never admitted as verified. Admitted as unverified by default, or refused
+  with `pkiMismatch: "drop"`; surfaced via the annotation, a distinct Gateway log line,
+  and a keybook mismatch record. Tier-3-class actions must fail closed on mismatch.
+
+Keys are learned from NodeInfo adverts (`User.public_key`) and from PKI packet
+provenance, and pinned first-seen in the keybook (see [Node book](#node-book)). A
+legitimate rotation is remediated explicitly via `pkiRepin` — a rotated node otherwise
+stays `mismatch` forever and never auto-heals. PKI packets that arrive still-encrypted
+on the TCP/serial path are dropped with a distinct log line (never mis-decrypted with
+the channel key); in-plugin PKI decryption is phase 2, tracked as issue #7.
+
 - **Allowlists are policy, not identity.** `dmPolicy` / `groupAllowFrom` gate which
   sender numbers may reach the agent; a forged sender number inherits whatever was
   allowed. High-impact actions (locks, alarms, purchases) should always require
-  out-of-band confirmation regardless of how trusted the sender appears.
+  out-of-band confirmation regardless of how trusted the sender appears —
+  `pki-verified` raises the bar, it does not remove it.
 - **Blast radius is the real perimeter:** a dedicated, least-privilege mesh agent,
   `groupTransmit: false` (default), and receive-only channel defaults bound what a
   forged message can achieve.
@@ -342,6 +358,33 @@ Fields worth knowing:
   Meshtastic library shows as `model_<n>` (the Heltec V4 does with
   @meshtastic/core 2.6.7), an unknown role as `role_<n>`.
 
+- `publicKey` / `keyFirstSeenAt` / `keyManuallyVerified`: the node's pinned
+  X25519 public key (base64) from the keybook (see below), when known, and
+  whether the operator confirmed it out-of-band.
+
+### Key book (sender-key pins)
+
+Alongside the node book, the plugin keeps a **key book** at
+`~/.openclaw/state/meshtastic-keys.json` (named accounts:
+`meshtastic-keys.<accountId>.json`, mode `0600`): the per-node public-key
+pins behind the [sender-identity grades](#sender-identity-trust-model).
+
+- Pins are learned first-seen from NodeInfo adverts (`User.public_key`) and
+  from the key provenance the firmware stamps on decrypted PKI packets.
+  First-seen wins: a later different key under the same node number is never
+  adopted — it produces a `mismatch` (agent-visible annotation, distinct
+  Gateway log line, bounded in-memory mismatch record).
+- The store survives gateway restarts and radio-side node-DB evictions (the
+  radio re-TOFUs on eviction; this store does not). It is capped at 2000
+  pins; at the cap the least-recently-seen pin is evicted with a log line —
+  a lost pin is a re-opened first-contact window, so it never happens
+  silently.
+- **Rotation remediation:** list the node in `channels.meshtastic.pkiRepin`
+  and restart/reload the channel to clear its pin (logged); the next
+  observed key re-pins. Remove the entry afterwards — while listed, every
+  restart re-opens first-seen. `pkiManuallyVerified` marks pinned keys you
+  have confirmed out-of-band.
+
 **Privacy.** The file holds other people's positions (written with mode
 0600). Keep it out of shared folders, and do not let mesh DM sessions read it
 for strangers (see "Multi-agent setup" for a restricted mesh agent).
@@ -421,6 +464,9 @@ This plugin supports both via official transports; you are not limited to a sing
 | `dmPolicy`       | string   | `"pairing"`   | DM access policy                       |
 | `allowFrom`      | array    | `[]`          | Allowed DM senders                     |
 | `defaultTo`      | string   | —             | Default outbound target                |
+| `pkiMismatch`    | string   | `"unverified"` | Key-mismatch admission: `"unverified"` admits marked, `"drop"` refuses (never verified either way) |
+| `pkiRepin`       | array    | `[]`          | Node ids whose stored key pins are cleared at channel start (rotation remediation; remove after re-pin) |
+| `pkiManuallyVerified` | array | `[]`        | Node ids whose pinned keys are marked out-of-band verified at channel start |
 | `groupPolicy`    | string   | `"disabled"`  | Broadcast access policy                |
 | `groupAllowFrom` | array    | `[]`          | Allowed broadcast senders (empty + allowlist = nobody admitted, fail-closed) |
 | `groups`         | object   | `{}`          | Per-channel policy (`channel:0`, etc.) |
