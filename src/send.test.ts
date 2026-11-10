@@ -411,6 +411,76 @@ describe("sendMessageMeshtastic", () => {
     }
   });
 
+  it("logs one PARTIAL INFO line on a group send when a later chunk fails after earlier chunks aired (#24)", async () => {
+    let calls = 0;
+    const sendText = vi.fn(async () => {
+      calls += 1;
+      if (calls === 2) {
+        throw new Error("radio write failed");
+      }
+      return 200 + calls;
+    });
+    const handle = {
+      accountId: "default",
+      myNodeNum: 123,
+      device: { sendText },
+    };
+    getMeshtasticDeviceMock.mockReturnValue(handle);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      // 344 bytes forces >=2 chunks; the second chunk send fails.
+      const body = "group partial body word ".repeat(15).trim();
+      const totalChunks = chunkUtf8(body, 200).length;
+      expect(totalChunks).toBeGreaterThanOrEqual(2);
+
+      await expect(
+        sendMessageMeshtastic("channel:0", body, {
+          cfg: createConfig({ groupTransmit: true }),
+          ackWaitMs: 50,
+        }),
+      ).rejects.toThrow(/radio write failed/);
+
+      expect(sendText).toHaveBeenCalledTimes(2);
+      expect(log).toHaveBeenCalledTimes(1);
+      const line = String(log.mock.calls[0]?.[0]);
+      expect(line).toBe(
+        `[default] outbound group to channel:0 PARTIAL (1/${totalChunks} chunks aired before failure)`,
+      );
+      expect(line).not.toContain(body);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("logs nothing when the first group chunk fails — zero chunks aired (#24)", async () => {
+    const sendText = vi.fn(async () => {
+      throw new Error("radio dead");
+    });
+    const handle = {
+      accountId: "default",
+      myNodeNum: 123,
+      device: { sendText },
+    };
+    getMeshtasticDeviceMock.mockReturnValue(handle);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      const body = "group first chunk failure ".repeat(15).trim();
+      expect(chunkUtf8(body, 200).length).toBeGreaterThanOrEqual(2);
+
+      await expect(
+        sendMessageMeshtastic("channel:0", body, {
+          cfg: createConfig({ groupTransmit: true }),
+          ackWaitMs: 50,
+        }),
+      ).rejects.toThrow(/radio dead/);
+
+      expect(sendText).toHaveBeenCalledTimes(1);
+      expect(log).not.toHaveBeenCalled();
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it("logs the trimmed char count when the body has leading/trailing whitespace (#24)", async () => {
     const sendText = vi.fn(async () => 99);
     const handle = {
