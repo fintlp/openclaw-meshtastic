@@ -93,6 +93,23 @@ rather than instructional:
   alias — regardless of `groupTransmit`. These reach every node in range
   with no channel scoping, so no config flag lifts the refusal; automated
   tests pin every form under both flag states.
+- **Sender identity is enforced at intake, not merely graded** (releases after
+  2026.11.1, issue #33 / ClawScan MCP07): one identity gate decides admission
+  and command rights from the sender-identity grade, the keybook and config,
+  and it runs before pairing, storage and dispatch on every inbound path
+  (live, custom `onMessage` consumers, and durability replay). Defaults:
+  a DM from a keybook-anchored number (pin or tombstone) must be
+  `pki-verified` (`dmIdentity: "known-keys"`); commands run only from a
+  `pki-verified` DM with key continuity (`commandIdentity: "verified"`, group
+  traffic never commands); key mismatches are dropped (`pkiMismatch: "drop"`);
+  mesh entries in `commands.ownerAllowFrom` always require PKI continuity and
+  never apply to group traffic; key-bound `pkiManuallyVerified` entries
+  (`!id=<base64 32-byte key>`) are enforced in every mode. A refusal sends
+  nothing — no reply, no pairing code, no airtime. Residual risk: a
+  never-anchored number can still be impersonated under `known-keys` (but
+  with no commands and no known-contact session) — `dmIdentity: "strict"`
+  closes that gap, and the grade itself still trusts the attached radio and
+  first-seen pinning unless a contact is key-bound.
 - **Cautious access defaults:** `dmPolicy: "pairing"` (every new contact needs
   your approval) and `groupPolicy: "disabled"` (channel traffic never triggers
   the agent until you opt in).

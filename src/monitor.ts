@@ -26,7 +26,13 @@ import {
   subscribeNodeBook,
   type NodeKeyObservation,
 } from "./node-book.js";
-import { parseMeshtasticNodeNum } from "./normalize.js";
+import {
+  evaluateIdentityGate,
+  firmwareStartupLine,
+  identityGateStartupLines,
+  logIdentityGateDrop,
+} from "./identity-gate.js";
+import { parseManualVerificationEntry, parseMeshtasticNodeNum } from "./normalize.js";
 import { installUnknownVariantGuard } from "./unknown-variant-guard.js";
 import { formatMeshtasticEndpoint } from "./transport.js";
 import type { RuntimeEnv } from "./runtime-api.js";
@@ -203,6 +209,25 @@ export function monitorMeshtasticProvider(
     const allowedChannels = new Set(account.config.channels ?? [0]);
     const unsubscribers: Array<() => void> = [];
 
+    // Identity gate (#33): node ids on the manual-verification list (either
+    // entry form). Live-created pins for these nodes get the operator mark
+    // immediately (see the provenance hook below) — the id-only gate rule
+    // requires the mark, and waiting for the next restart would strand a
+    // verified contact and its continuity DMs.
+    const manualVerifyNums = new Set<number>();
+    for (const entry of account.config.pkiManuallyVerified ?? []) {
+      const parsed = parseManualVerificationEntry(String(entry));
+      if (parsed) {
+        manualVerifyNums.add(parsed.num);
+      }
+    }
+    const markIfManualListed = (num: number) => {
+      if (manualVerifyNums.has(num)) {
+        markNodeKeyManuallyVerified(account.accountId, num);
+      }
+    };
+
+
     // Node book (#15): passive, zero airtime. Subscribed before configure()
     // so the node database the radio replays on connect is captured.
     unsubscribers.push(
@@ -211,6 +236,54 @@ export function monitorMeshtasticProvider(
         handle.device.events as unknown as Record<string, unknown>,
       ),
     );
+
+    // Gateway radio firmware (DeviceMetadata) feeds the CVE-2025-53627
+    // startup warning (#33). Optional: some transports may not surface the
+    // event; a late arrival still gets its line.
+    let gatewayFirmwareVersion: string | undefined;
+    let startupLinesEmitted = false;
+    const emitStartupLines = () => {
+      startupLinesEmitted = true;
+      for (const { line } of identityGateStartupLines({
+        accountId: account.accountId,
+        accountConfig: account.config,
+        transport: account.transport,
+        coreConfig: cfg,
+      })) {
+        console.log(line);
+      }
+      const fwLine = firmwareStartupLine(account.accountId, gatewayFirmwareVersion);
+      if (fwLine) {
+        console.log(fwLine);
+      }
+    };
+    const metadataEvent = (
+      handle.device.events as unknown as Record<string, unknown>
+    ).onDeviceMetadataPacket as
+      | {
+          subscribe?: (
+            fn: (meta: { data?: { firmwareVersion?: unknown } }) => void,
+          ) => (() => void) | void;
+        }
+      | undefined;
+    if (typeof metadataEvent?.subscribe === "function") {
+      const unsub = metadataEvent.subscribe((meta) => {
+        if (typeof meta?.data?.firmwareVersion !== "string") {
+          return;
+        }
+        const isNew = gatewayFirmwareVersion === undefined;
+        gatewayFirmwareVersion = meta.data.firmwareVersion;
+        if (startupLinesEmitted && isNew) {
+          const fwLine = firmwareStartupLine(account.accountId, gatewayFirmwareVersion);
+          if (fwLine) {
+            console.log(fwLine);
+          }
+        }
+      });
+      if (typeof unsub === "function") {
+        unsubscribers.push(unsub);
+      }
+    }
 
     // Key book (#7): mismatches and pin evictions are security events. They
     // go through console.log, not the child logger — the child logger's info
@@ -376,16 +449,26 @@ export function monitorMeshtasticProvider(
           direction: "inbound",
           at: message.timestamp,
         });
-        if (
-          message.senderIdentity?.grade === "mismatch" &&
-          (account.config.pkiMismatch ?? "unverified") === "drop"
-        ) {
-          // Same policy gate as handleMeshtasticInbound, so no dispatch path —
-          // including a custom onMessage consumer — can skip it.
-          console.log(
-            `[${account.accountId}] meshtastic: drop ${message.isGroup ? "group" : "DM"} sender ${message.senderId} ` +
-              `(pki key mismatch: ${message.senderIdentity.detail ?? "key changed"}; pkiMismatch=drop)`,
-          );
+        // Identity gate (#33, MCP07): same pure function as
+        // handleMeshtasticInbound, so no dispatch path — including a custom
+        // onMessage consumer — can skip it.
+        const gate = evaluateIdentityGate({
+          accountId: account.accountId,
+          senderNodeNum: message.senderNodeNum,
+          isGroup: message.isGroup,
+          senderIdentity: message.senderIdentity,
+          accountConfig: account.config,
+          coreConfig: cfg,
+        });
+        if (gate.action === "drop") {
+          logIdentityGateDrop({
+            accountId: account.accountId,
+            senderNodeNum: message.senderNodeNum,
+            senderId: message.senderId,
+            isGroup: message.isGroup,
+            decision: gate,
+            log: (line) => console.log(line),
+          });
           return;
         }
         if (opts.onMessage) {
@@ -439,6 +522,12 @@ export function monitorMeshtasticProvider(
                   ? (observeNodeKey(account.accountId, meshPacket.from, publicKey, "pki-packet") ??
                     undefined)
                   : undefined;
+              if (observation) {
+                // #33: a pin created live for a manually listed node gets the
+                // operator mark immediately — waiting for the next restart
+                // would strand continuity DMs of a verified contact.
+                markIfManualListed(meshPacket.from);
+              }
               recordProvenance(meshPacket.from, meshPacket.id, {
                 pkiEncrypted,
                 publicKey,
@@ -458,6 +547,17 @@ export function monitorMeshtasticProvider(
               // distinct log line. Per-node PKI support is issue #7.
               logger.debug?.(
                 `[${account.accountId}] dropping PKI-encrypted packet ${meshPacket.id}: per-node PKI unsupported on this path (issue #7)`,
+              );
+              return;
+            }
+            // #33: the plugin-side channel-key decrypt path never builds DMs.
+            // A channel-PSK packet addressed to one node is the CVE-2025-53627
+            // downgrade shape (fixed in firmware 2.7.15); decrypting it here
+            // would manufacture a psk-grade DM out of forged traffic.
+            // Broadcasts are unchanged.
+            if (meshPacket.to !== 0xffffffff) {
+              logger.debug?.(
+                `[${account.accountId}] dropping channel-key packet ${meshPacket.id}: addressed to a single node — plugin-side decrypt never builds DMs (CVE-2025-53627 class)`,
               );
               return;
             }
@@ -486,7 +586,7 @@ export function monitorMeshtasticProvider(
             const syntheticPacket: MeshtasticPacket = {
               id: meshPacket.id,
               rxTime: new Date(meshPacket.rxTime ? meshPacket.rxTime * 1000 : Date.now()),
-              type: meshPacket.to === 0xffffffff ? "broadcast" : "direct",
+              type: "broadcast", // guaranteed by the DM drop above (#33)
               from: meshPacket.from,
               to: meshPacket.to,
               channel: meshPacket.channel,
@@ -612,7 +712,9 @@ export function monitorMeshtasticProvider(
     // connect replay so pins created by the replay are covered. Pins for
     // nodes first heard later are marked at the next start while listed.
     for (const entry of account.config.pkiManuallyVerified ?? []) {
-      const num = parseMeshtasticNodeNum(String(entry));
+      // Key-bound entries parse to their node id here; the key comparison
+      // itself runs in the identity gate and the startup checks (#33).
+      const num = parseManualVerificationEntry(String(entry))?.num;
       if (num === undefined) {
         logger.debug?.(
           `[${account.accountId}] pkiManuallyVerified entry ${JSON.stringify(entry)} is not a node id — ignored`,
@@ -625,6 +727,11 @@ export function monitorMeshtasticProvider(
         );
       }
     }
+
+    // Identity gate startup checks (#33): one line per condition, once per
+    // start — after the connect replay and the manual-verification marks,
+    // so pins and marks are in place for the key-difference comparison.
+    emitStartupLines();
 
     // console.log, not logger.info — child-logger info lines never reach
     // gateway.log (default 'info' level, no override; ctx.log and console.*

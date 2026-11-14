@@ -96,12 +96,30 @@ export type MeshtasticAccountConfig = {
   };
   /**
    * PKI key-mismatch policy (issue #7): how a sender whose PKI provenance
-   * conflicts with the pinned keybook entry is admitted. "unverified"
-   * (default) admits the message marked unverified; "drop" refuses it.
-   * Either way it is never admitted as pki-verified, and tier-3 actions must
-   * fail closed on a mismatch regardless of this setting.
+   * conflicts with the pinned keybook entry is admitted. "drop" (default since
+   * 2026.11.1) refuses it at the identity gate; "unverified" admits the
+   * message marked unverified. With dmIdentity "known-keys" or "strict" a
+   * mismatch is dropped anyway; "unverified" then only changes unanchored
+   * anomalies. Tier-3 actions must fail closed on a mismatch
+   * regardless of this setting.
    */
   pkiMismatch?: "unverified" | "drop";
+  /**
+   * DM sender-identity gate (issue #33, ClawScan MCP07). "known-keys"
+   * (default): a DM from a number the keybook anchors (pin OR eviction
+   * tombstone) must be pki-verified. "strict": every DM must be pki-verified
+   * (drops pre-2.5 firmware nodes). "off": 2026.10.35 behaviour — forged
+   * channel-PSK senders are admitted; logged at start, not recommended.
+   */
+  dmIdentity?: "known-keys" | "strict" | "off";
+  /**
+   * Command authority over the mesh (issue #33). "verified" (default):
+   * commands run only from a pki-verified DM with key continuity; everything
+   * else reaches the agent as plain text (CommandInterpretationSuppressed).
+   * "policy": 2026.10.35 behaviour — forged senders are command-capable;
+   * logged at start, not recommended.
+   */
+  commandIdentity?: "verified" | "policy";
   /**
    * Operator re-pin list (key rotation remediation, issue #7): node ids whose
    * stored key pins are cleared at channel start, so the node's next observed
@@ -111,10 +129,13 @@ export type MeshtasticAccountConfig = {
    */
   pkiRepin?: string[];
   /**
-   * Operator manual-verification list (issue #7): node ids whose pinned keys
-   * are marked manually verified at channel start (the out-of-band ceremony
-   * already happened). Informational in phase 1 — recorded on the pin and
-   * surfaced in the node book; does not change admission by itself.
+   * Operator manual-verification list (issue #7, enforced at the identity
+   * gate since 2026.11.1 / issue #33): entries are a node id or the key-bound
+   * form "!id=<base64 32-byte public key>" (read the key off the Meshtastic
+   * app — never a 12-hex fingerprint; 48 bits can be ground). A listed id and
+   * its DMs must be pki-verified; the id-only form also requires key
+   * continuity and the verified mark, the key-bound form a byte-exact pin
+   * match. These pins are never evicted.
    */
   pkiManuallyVerified?: string[];
   /** When true, inbound info logs include up to 80 characters of message text (default: metadata only). */

@@ -61,9 +61,17 @@ export const meshtasticChannelConfigUiHints = {
     label: "Log Inbound Message Content",
     help: "When true, Gateway logs include up to 80 characters of inbound mesh text. Default is false (metadata only: sender, target, message id, length).",
   },
+  dmIdentity: {
+    label: "DM Sender Identity",
+    help: "Who may DM the agent (2026.11.1 identity gate): known-keys (default) requires a PKI-verified DM from every number the keybook anchors; strict requires PKI verification from every DM; off restores 2026.10.35 behaviour (forged senders admitted — not recommended).",
+  },
+  commandIdentity: {
+    label: "Command Identity",
+    help: "When mesh messages may run commands: verified (default) only from a PKI-verified DM with key continuity; policy restores 2026.10.35 behaviour (forged senders are command-capable — not recommended).",
+  },
   pkiMismatch: {
     label: "PKI Mismatch Policy",
-    help: 'How a sender whose PKI provenance conflicts with the pinned keybook entry is admitted: "unverified" (default) admits the message marked unverified, "drop" refuses it. Mismatching senders are never admitted as pki-verified either way.',
+    help: "How a sender whose PKI provenance conflicts with the pinned keybook entry is admitted: drop (default) refuses it, unverified admits the message marked unverified (legacy escape hatch; with dmIdentity known-keys or strict a mismatch is dropped anyway). Mismatching senders are never admitted as pki-verified either way.",
   },
   pkiRepin: {
     label: "PKI Re-Pin (Key Rotation)",
@@ -71,6 +79,7 @@ export const meshtasticChannelConfigUiHints = {
   },
   pkiManuallyVerified: {
     label: "PKI Manually Verified Keys",
-    help: "Node ids whose pinned keys you have confirmed out-of-band. Applied at channel start to pins that exist at that moment; surfaced on the pin and in the node book. These pins are never evicted when the key store fills — the only in-product defense against pin-flood eviction, so list high-value contacts here.",
+    help: "Node ids whose pinned keys you have confirmed out-of-band, enforced at the identity gate: a listed id and its DMs must be PKI-verified. Entries are a node id or the key-bound form !id=<base64 32-byte public key> (read the key off the Meshtastic app — a fingerprint can be ground). Key-bound entries are the strong form for high-value contacts. These pins are never evicted when the key store fills.",
   },
+
 } satisfies Record<string, ChannelConfigUiHint>;

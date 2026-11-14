@@ -174,8 +174,9 @@ context next to the sender id, never part of the message text):
   binding on firmware 2.8+). See the README section "Sender identity" for the full
   limits before relying on this grade.
 - **`mismatch`** — the PKI provenance conflicts with the pinned key (or has no key
-  material): never admitted as verified. Admitted as unverified by default, or refused
-  with `pkiMismatch: "drop"`; surfaced via the annotation, a distinct Gateway log line,
+  material): never admitted as verified. Refused by default since 2026.11.1 (`pkiMismatch: "drop"`,
+  at the identity gate); `"unverified"` admits it marked and only takes effect with
+  `dmIdentity: "off"`. Surfaced via the annotation, a distinct Gateway log line,
   and a keybook mismatch record. Tier-3-class actions must fail closed on mismatch.
 
 Keys are learned from NodeInfo adverts (`User.public_key`) and from PKI packet
@@ -477,9 +478,11 @@ This plugin supports both via official transports; you are not limited to a sing
 | `dmPolicy`       | string   | `"pairing"`   | DM access policy                       |
 | `allowFrom`      | array    | `[]`          | Allowed DM senders                     |
 | `defaultTo`      | string   | —             | Default outbound target                |
-| `pkiMismatch`    | string   | `"unverified"` | Key-mismatch admission: `"unverified"` admits marked, `"drop"` refuses (never verified either way) |
+| `dmIdentity`     | string   | `"known-keys"` | Identity gate for DMs: `"known-keys"` requires PKI from keybook-anchored numbers, `"strict"` from every DM, `"off"` restores 2026.10.35 |
+| `commandIdentity`  | string   | `"verified"`   | Command authority: `"verified"` only from a PKI-verified DM with continuity, `"policy"` restores 2026.10.35 |
+| `pkiMismatch`    | string   | `"drop"` | Key-mismatch admission: `"drop"` refuses, `"unverified"` admits marked (legacy; an anchored mismatch is dropped under `known-keys`/`strict` anyway) |
 | `pkiRepin`       | array    | `[]`          | Node ids whose stored key pins are cleared at channel start (rotation remediation; remove after re-pin) |
-| `pkiManuallyVerified` | array | `[]`        | Node ids whose pinned keys are marked out-of-band verified at channel start |
+| `pkiManuallyVerified` | array | `[]`        | Out-of-band verified contacts, enforced at the gate: `!id` or key-bound `!id=<base64 32-byte key>`; never evicted |
 | `groupPolicy`    | string   | `"disabled"`  | Broadcast access policy                |
 | `groupAllowFrom` | array    | `[]`          | Allowed broadcast senders (empty + allowlist = nobody admitted, fail-closed) |
 | `groups`         | object   | `{}`          | Per-channel policy (`channel:0`, etc.) |

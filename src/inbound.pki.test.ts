@@ -143,7 +143,7 @@ describe("inbound PKI sender identity (issue #7)", () => {
     clearMeshtasticRuntime();
   });
 
-  it("a mismatch is admitted as unverified by default and annotated in structured context", async () => {
+  it("legacy mode (dmIdentity=off, pkiMismatch=unverified): a mismatch is admitted unverified and annotated in structured context", async () => {
     const capture: { ctxPayload?: Record<string, unknown> } = {};
     const inboundRun = installDispatchRuntime(capture);
     const identity: MeshtasticSenderIdentity = {
@@ -153,7 +153,18 @@ describe("inbound PKI sender identity (issue #7)", () => {
     };
     await handleMeshtasticInbound({
       message: createMessage(identity),
-      account: createAccount(),
+      account: createAccount({
+        config: {
+          // 2026.11.1 (MCP07): defaults flipped to drop — this test pins the
+          // LEGACY admit path explicitly.
+          dmIdentity: "off",
+          pkiMismatch: "unverified",
+          dmPolicy: "allowlist",
+          allowFrom: ["!00000002"],
+          groupPolicy: "disabled",
+          channels: [0],
+        },
+      } as ResolvedMeshtasticAccount),
       config: { channels: { meshtastic: { host: "192.0.2.10" } } } as CoreConfig,
       runtime: createRuntimeEnv(),
       sendReply: vi.fn(async () => undefined),
@@ -197,7 +208,7 @@ describe("inbound PKI sender identity (issue #7)", () => {
     });
     expect(inboundRun).not.toHaveBeenCalled();
     expect(runtime.log).toHaveBeenCalledWith(
-      expect.stringContaining("drop DM sender !00000002 (pki key mismatch"),
+      expect.stringContaining("identity gate drop DM !00000002 (reason=pki-mismatch"),
     );
   });
 
@@ -253,7 +264,16 @@ describe("inbound PKI sender identity (issue #7)", () => {
     await handleMeshtasticInbound({
       message: createMessage({ grade: "mismatch", keyFp: "abcdef012345", detail: "key changed" }),
       account: createAccount({
-        config: { dmPolicy: "pairing", allowFrom: [], groupPolicy: "disabled", channels: [0] },
+        config: {
+          // 2026.11.1 (MCP07): the gate drops mismatches before pairing by
+          // default — this test pins the legacy pairing path explicitly.
+          dmIdentity: "off",
+          pkiMismatch: "unverified",
+          dmPolicy: "pairing",
+          allowFrom: [],
+          groupPolicy: "disabled",
+          channels: [0],
+        },
       } as ResolvedMeshtasticAccount),
       config: { channels: { meshtastic: { host: "192.0.2.10" } } } as CoreConfig,
       runtime: createRuntimeEnv(),

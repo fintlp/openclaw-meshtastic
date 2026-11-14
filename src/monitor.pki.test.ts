@@ -14,6 +14,7 @@ import {
   setKeyBookPathForTests,
   setNodeBookPathForTests,
 } from "./node-book.js";
+import { resetIdentityGateThrottleForTests } from "./identity-gate.js";
 import type { CoreConfig, MeshtasticInboundMessage } from "./types.js";
 
 // Monitor-level PKI identity wiring (issue #7 phase 1): raw-packet provenance
@@ -98,6 +99,7 @@ function createHandle() {
         onUserPacket: event("onUserPacket"),
         onPositionPacket: event("onPositionPacket"),
         onMyNodeInfo: event("onMyNodeInfo"),
+        onDeviceMetadataPacket: event("onDeviceMetadataPacket"),
       },
     },
   };
@@ -168,6 +170,7 @@ describe("monitor PKI sender identity (issue #7)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetNodeBookForTests();
+    resetIdentityGateThrottleForTests();
     dir = mkdtempSync(join(tmpdir(), "meshtastic-monitor-pki-"));
     setNodeBookPathForTests(join(dir, "meshtastic-nodes.json"));
     setKeyBookPathForTests(join(dir, "meshtastic-keys.json"));
@@ -240,6 +243,23 @@ describe("monitor PKI sender identity (issue #7)", () => {
   });
 
   it("a key flip between packets degrades to mismatch and logs the distinct line", async () => {
+    // 2026.11.1 (MCP07): the gate drops mismatches by default — this grading
+    // test pins the legacy dispatch path explicitly.
+    resolveMeshtasticAccountMock.mockReturnValue({
+      accountId: "default",
+      configured: true,
+      transport: "tcp" as const,
+      host: "192.0.2.10",
+      port: 4403,
+      config: {
+        dmPolicy: "pairing",
+        allowFrom: [],
+        groupPolicy: "disabled",
+        channels: [0],
+        dmIdentity: "off",
+        pkiMismatch: "unverified",
+      },
+    });
     const { consoleLogSpy, subs, abortController, monitorPromise } = await startMonitor();
     const num = consistentNum(0x11);
     fireRawMeshPacket(subs, decodedPkiPacket({ id: 1001, from: num, publicKey: key(0x11) }));
@@ -309,6 +329,23 @@ describe("monitor PKI sender identity (issue #7)", () => {
   });
 
   it("a decoded pki_encrypted packet WITHOUT key provenance is surfaced as mismatch", async () => {
+    // 2026.11.1 (MCP07): the gate drops mismatches by default — this grading
+    // test pins the legacy dispatch path explicitly.
+    resolveMeshtasticAccountMock.mockReturnValue({
+      accountId: "default",
+      configured: true,
+      transport: "tcp" as const,
+      host: "192.0.2.10",
+      port: 4403,
+      config: {
+        dmPolicy: "pairing",
+        allowFrom: [],
+        groupPolicy: "disabled",
+        channels: [0],
+        dmIdentity: "off",
+        pkiMismatch: "unverified",
+      },
+    });
     const { subs, abortController, monitorPromise } = await startMonitor();
     fireRawMeshPacket(subs, {
       id: 2003,
@@ -430,6 +467,23 @@ describe("monitor PKI sender identity (issue #7)", () => {
   });
 
   it("without a re-pin a rotated node stays mismatch — never auto-heals", async () => {
+    // 2026.11.1 (MCP07): the gate drops mismatches by default — this grading
+    // test pins the legacy dispatch path explicitly.
+    resolveMeshtasticAccountMock.mockReturnValue({
+      accountId: "default",
+      configured: true,
+      transport: "tcp" as const,
+      host: "192.0.2.10",
+      port: 4403,
+      config: {
+        dmPolicy: "pairing",
+        allowFrom: [],
+        groupPolicy: "disabled",
+        channels: [0],
+        dmIdentity: "off",
+        pkiMismatch: "unverified",
+      },
+    });
     const { subs, abortController, monitorPromise } = await startMonitor();
     const num = consistentNum(0x11);
     fireRawMeshPacket(subs, decodedPkiPacket({ id: 6001, from: num, publicKey: key(0x11) }));
@@ -464,11 +518,31 @@ describe("security rework (#7 review)", () => {
       },
       channel: { activity: { record: vi.fn() } },
     });
+    if (opts.accountConfigExtra || opts.accountExtra) {
+      resolveMeshtasticAccountMock.mockReturnValue({
+        accountId: "default",
+        configured: true,
+        transport: "tcp" as const,
+        host: "192.0.2.10",
+        port: 4403,
+        ...(opts.accountExtra ?? {}),
+        config: {
+          dmPolicy: "pairing",
+          allowFrom: [],
+          groupPolicy: "disabled",
+          channels: [0],
+          ...(opts.accountConfigExtra ?? {}),
+        },
+      });
+    }
     const { handle, subs } = createHandle();
     connectMeshtasticDeviceMock.mockResolvedValue(handle);
     const abortController = new AbortController();
     const monitorPromise = monitorMeshtasticProvider({
-      config: { channels: { meshtastic: { host: "192.0.2.10" } } } as CoreConfig,
+      config: {
+        channels: { meshtastic: { host: "192.0.2.10" } },
+        ...(opts.coreConfigExtra ?? {}),
+      } as CoreConfig,
       runtime: { log: vi.fn(), error: vi.fn() } as never,
       abortSignal: abortController.signal,
       ...(opts.onMessage ? { onMessage: opts.onMessage as never } : {}),
@@ -484,6 +558,23 @@ describe("security rework (#7 review)", () => {
   }
 
   it("consumes provenance once — a recycled (from,id) can never re-read a grade", async () => {
+    // 2026.11.1 (MCP07): the second read grades psk-grade — under the default
+    // known-keys gate that message would be dropped before dispatch. This test
+    // pins provenance-consumption semantics, so it runs the legacy gate.
+    resolveMeshtasticAccountMock.mockReturnValue({
+      accountId: "default",
+      configured: true,
+      transport: "tcp" as const,
+      host: "192.0.2.10",
+      port: 4403,
+      config: {
+        dmPolicy: "pairing",
+        allowFrom: [],
+        groupPolicy: "disabled",
+        channels: [0],
+        dmIdentity: "off",
+      },
+    });
     const { subs, abortController, monitorPromise } = await startWith();
     const num = consistentNum(0x51);
 
@@ -502,7 +593,7 @@ describe("security rework (#7 review)", () => {
     await monitorPromise;
   });
 
-  it("applies pkiMismatch=drop to the onMessage dispatch path too", async () => {
+  it("the identity gate drops a mismatched sender before a custom onMessage consumer (MCP07)", async () => {
     resolveMeshtasticAccountMock.mockReturnValue({
       accountId: "default",
       configured: true,
@@ -530,8 +621,9 @@ describe("security rework (#7 review)", () => {
     fireTyped(subs, typedTextPacket({ id: 7003, from: num }));
 
     await vi.waitFor(() =>
-      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining("pkiMismatch=drop")),
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining("identity gate drop DM")),
     );
+    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining("reason=pki-mismatch"));
     expect(seen).toHaveLength(0);
 
     abortController.abort();
@@ -620,5 +712,213 @@ describe("security rework (#7 review)", () => {
     expect(getRepinMarker("default", num)).toBeUndefined();
     second.abortController.abort();
     await second.monitorPromise;
+  });
+
+  it("T19 known-keys: a forged psk-grade DM for a pinned number never reaches a custom onMessage consumer (MCP07)", async () => {
+    const num = consistentNum(0x61);
+    // A real prior PKI contact pinned this number; the forged DM arrives
+    // WITHOUT provenance (psk-grade) and must be refused before any consumer.
+    observeNodeKey("default", num, Buffer.from(key(0x61)).toString("base64"), "pki-packet");
+    const seen: MeshtasticInboundMessage[] = [];
+    const { consoleLogSpy, subs, abortController, monitorPromise } = await startWith({
+      onMessage: async (m) => {
+        seen.push(m);
+      },
+    });
+    inboundMock.mockClear();
+    for (const fn of subs.onMessagePacket ?? []) {
+      fn(typedTextPacket({ id: 7101, from: num }) as never);
+    }
+    await vi.waitFor(() =>
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining("identity gate drop DM")),
+    );
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      expect.stringContaining("reason=known-key-unverified"),
+    );
+    expect(seen).toHaveLength(0);
+    expect(inboundMock).not.toHaveBeenCalled();
+    abortController.abort();
+    await monitorPromise;
+  });
+
+  it("T20 the plugin-side decrypt path never builds DMs; broadcasts still decrypt (CVE-2025-53627, MCP07)", async () => {
+    expandPskMock.mockReturnValue(new Uint8Array(16).fill(7));
+    const { consoleLogSpy, subs, abortController, monitorPromise } = await startWith();
+    inboundMock.mockClear();
+    decryptChannelPacketMock.mockClear();
+    subs.onChannelPacket?.[0]?.({ index: 0, settings: { psk: new Uint8Array([1]) } } as never);
+
+    // Channel-key packet addressed to ONE node: refused before the decryptor.
+    fireRawMeshPacket(subs, {
+      id: 7201,
+      from: SENDER,
+      to: MY_NUM,
+      channel: 0,
+      rxTime: 1790000000,
+      payloadVariant: { case: "encrypted", value: new Uint8Array([9, 9, 9]) },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(decryptChannelPacketMock).not.toHaveBeenCalled();
+    expect(inboundMock).not.toHaveBeenCalled();
+    expect(consoleLogSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining("inbound (decrypted)"),
+    );
+
+    // A broadcast on the same path still decrypts and dispatches.
+    decryptChannelPacketMock.mockReturnValue(new TextEncoder().encode("hello mesh"));
+    fireRawMeshPacket(subs, {
+      id: 7202,
+      from: SENDER,
+      to: 0xffffffff,
+      channel: 0,
+      rxTime: 1790000000,
+      payloadVariant: { case: "encrypted", value: new Uint8Array([9, 9, 9]) },
+    });
+    await vi.waitFor(() => expect(inboundMock).toHaveBeenCalled());
+    const message = await lastInboundMessage();
+    expect(message.isGroup).toBe(true);
+    expect(message.senderIdentity?.grade).toBe("psk-grade");
+    abortController.abort();
+    await monitorPromise;
+  });
+
+  describe("identity gate startup checks (MCP07 T24)", () => {
+    beforeEach(() => {
+      resetIdentityGateThrottleForTests();
+      resolveMeshtasticAccountMock.mockReturnValue({
+        accountId: "default",
+        configured: true,
+        transport: "tcp" as const,
+        host: "192.0.2.10",
+        port: 4403,
+        config: { dmPolicy: "pairing", allowFrom: [], groupPolicy: "disabled", channels: [0] },
+      });
+    });
+
+    function fireMetadata(subs: Record<string, Handler[]>, firmwareVersion: string): void {
+      for (const fn of subs.onDeviceMetadataPacket ?? []) {
+        fn({ data: { firmwareVersion } } as never);
+      }
+    }
+
+    it("clean defaults emit no identity-gate WARN/INFO startup lines", async () => {
+      const { consoleLogSpy, abortController, monitorPromise } = await startWith();
+      consoleLogSpy.mockClear();
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      const gateLines = consoleLogSpy.mock.calls
+        .map((c) => String(c[0]))
+        .filter(
+          (l) => l.includes("meshtastic: WARN") || l.includes("INFO commands.ownerAllowFrom"),
+        );
+      expect(gateLines).toEqual([]);
+      abortController.abort();
+      await monitorPromise;
+    });
+
+    it("dmIdentity=off warns exactly once per start", async () => {
+      const { consoleLogSpy, abortController, monitorPromise } = await startWith({
+        accountConfigExtra: { dmIdentity: "off" },
+      });
+      await vi.waitFor(() =>
+        expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining("WARN dmIdentity=off")),
+      );
+      expect(
+        consoleLogSpy.mock.calls.filter((c) => String(c[0]).includes("WARN dmIdentity=off")),
+      ).toHaveLength(1);
+      abortController.abort();
+      await monitorPromise;
+    });
+
+    it("commandIdentity=policy warns", async () => {
+      const { consoleLogSpy, abortController, monitorPromise } = await startWith({
+        accountConfigExtra: { commandIdentity: "policy" },
+      });
+      await vi.waitFor(() =>
+        expect(consoleLogSpy).toHaveBeenCalledWith(
+          expect.stringContaining("WARN commandIdentity=policy"),
+        ),
+      );
+      abortController.abort();
+      await monitorPromise;
+    });
+
+    it("transport=http with the default known-keys gate warns", async () => {
+      const { consoleLogSpy, abortController, monitorPromise } = await startWith({
+        accountExtra: { transport: "http" },
+      });
+      await vi.waitFor(() =>
+        expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining("WARN transport=http")),
+      );
+      abortController.abort();
+      await monitorPromise;
+    });
+
+    it("owner mesh entries produce one INFO line with ids and pin fingerprints", async () => {
+      const num = consistentNum(0x63);
+      observeNodeKey("default", num, Buffer.from(key(0x63)).toString("base64"), "pki-packet");
+      const nodeId = "!" + num.toString(16).padStart(8, "0");
+      const { consoleLogSpy, abortController, monitorPromise } = await startWith({
+        coreConfigExtra: { commands: { ownerAllowFrom: [`meshtastic:${nodeId}`, "!000000aa"] } },
+      });
+      await vi.waitFor(() =>
+        expect(consoleLogSpy).toHaveBeenCalledWith(
+          expect.stringContaining("INFO commands.ownerAllowFrom resolves to mesh node(s)"),
+        ),
+      );
+      const line =
+        consoleLogSpy.mock.calls
+          .map((c) => String(c[0]))
+          .find((l) => l.includes("INFO commands.ownerAllowFrom")) ?? "";
+      expect(line).toContain(nodeId);
+      expect(line).toContain("!000000aa");
+      expect(line).toMatch(/fp=[0-9a-f]{12}/);
+      expect(line).toContain("key continuity");
+      abortController.abort();
+      await monitorPromise;
+    });
+
+    it("a key-bound manual entry differing from the stored pin warns with both fingerprints", async () => {
+      const num = consistentNum(0x64);
+      const nodeId = "!" + num.toString(16).padStart(8, "0");
+      observeNodeKey("default", num, Buffer.from(key(0x64)).toString("base64"), "pki-packet");
+      const configured = Buffer.from(key(0x65)).toString("base64");
+      const { consoleLogSpy, abortController, monitorPromise } = await startWith({
+        accountConfigExtra: { pkiManuallyVerified: [`${nodeId}=${configured}`] },
+      });
+      await vi.waitFor(() =>
+        expect(consoleLogSpy).toHaveBeenCalledWith(
+          expect.stringContaining("WARN pkiManuallyVerified key for"),
+        ),
+      );
+      const line =
+        consoleLogSpy.mock.calls
+          .map((c) => String(c[0]))
+          .find((l) => l.includes("WARN pkiManuallyVerified key for")) ?? "";
+      expect(line).toContain("differs from the stored pin");
+      expect(line).toContain("pkiRepin");
+      expect(line.match(/fp=[0-9a-f]{12}/g)?.length).toBeGreaterThanOrEqual(2);
+      abortController.abort();
+      await monitorPromise;
+    });
+
+    it("gateway firmware below 2.7.15 warns (CVE-2025-53627)", async () => {
+      const { consoleLogSpy, subs, abortController, monitorPromise } = await startWith();
+      fireMetadata(subs, "2.7.10.abc");
+      await vi.waitFor(() =>
+        expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining("CVE-2025-53627")),
+      );
+      abortController.abort();
+      await monitorPromise;
+    });
+
+    it("firmware 2.7.15 or newer does not warn", async () => {
+      const { consoleLogSpy, subs, abortController, monitorPromise } = await startWith();
+      consoleLogSpy.mockClear();
+      fireMetadata(subs, "2.7.15");
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      expect(consoleLogSpy).not.toHaveBeenCalledWith(expect.stringContaining("CVE-2025-53627"));
+      abortController.abort();
+      await monitorPromise;
+    });
   });
 });
