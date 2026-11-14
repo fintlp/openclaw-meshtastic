@@ -804,7 +804,9 @@ describe("security rework (#7 review)", () => {
     }
 
     it("clean defaults emit no identity-gate WARN/INFO startup lines", async () => {
-      const { consoleLogSpy, abortController, monitorPromise } = await startWith();
+      const { consoleLogSpy, abortController, monitorPromise } = await startWith({
+        coreConfigExtra: { session: { dmScope: "per-channel-peer" } },
+      });
       consoleLogSpy.mockClear();
       await new Promise((resolve) => setTimeout(resolve, 60));
       const gateLines = consoleLogSpy.mock.calls
@@ -813,6 +815,15 @@ describe("security rework (#7 review)", () => {
           (l) => l.includes("meshtastic: WARN") || l.includes("INFO commands.ownerAllowFrom"),
         );
       expect(gateLines).toEqual([]);
+      abortController.abort();
+      await monitorPromise;
+    });
+
+    it("warns when session.dmScope is main (the OpenClaw default)", async () => {
+      const { consoleLogSpy, abortController, monitorPromise } = await startWith();
+      await vi.waitFor(() =>
+        expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining("WARN session.dmScope")),
+      );
       abortController.abort();
       await monitorPromise;
     });

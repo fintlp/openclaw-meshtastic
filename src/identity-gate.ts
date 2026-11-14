@@ -412,6 +412,15 @@ export function identityGateStartupLines(params: {
       line: `${prefix} WARN commandIdentity=policy — forged channel-PSK senders are COMMAND-CAPABLE; set commandIdentity to "verified"`,
     });
   }
+  const dmScope =
+    (params.coreConfig as { session?: { dmScope?: string } }).session?.dmScope ?? "main";
+  if (dmScope === "main") {
+    lines.push({
+      level: "warn",
+      line: `${prefix} WARN session.dmScope is "main" — mesh DMs share your main agent session; set session.dmScope to "per-channel-peer" so mesh contacts get isolated sessions`,
+    });
+  }
+
   if (params.transport === "http" && dmIdentity !== "off") {
     lines.push({
       level: "warn",

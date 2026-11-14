@@ -28,6 +28,12 @@ const KEY_A = Buffer.alloc(32, 0x11).toString("base64");
 const sha256 = (b64: string) => createHash("sha256").update(Buffer.from(b64, "base64")).digest("hex");
 const KEY_B = Buffer.alloc(32, 0x22).toString("base64");
 const BASE_CFG = { channels: { meshtastic: { host: "192.0.2.10" } } } as CoreConfig;
+// Baseline with isolated mesh sessions: startup-line tests that are not
+// about dmScope use this so only their own condition can fire.
+const ISOLATED_CFG = {
+  channels: { meshtastic: { host: "192.0.2.10" } },
+  session: { dmScope: "per-channel-peer" },
+} as unknown as CoreConfig;
 
 function gate(params: {
   identity?: MeshtasticSenderIdentity;
@@ -291,9 +297,42 @@ describe("identity gate startup lines (T24 unit level)", () => {
         accountId: "default",
         accountConfig: {},
         transport: "tcp",
-        coreConfig: BASE_CFG,
+        coreConfig: {
+          channels: { meshtastic: { host: "192.0.2.10" } },
+          session: { dmScope: "per-channel-peer" },
+        } as unknown as CoreConfig,
       }),
     ).toEqual([]);
+  });
+
+  it("warns when mesh DMs share the main session (dmScope main or unset); per-channel-peer stays silent (B2)", () => {
+    const withMain = identityGateStartupLines({
+      accountId: "default",
+      accountConfig: {},
+      transport: "tcp",
+      coreConfig: {
+        channels: { meshtastic: { host: "192.0.2.10" } },
+        session: { dmScope: "main" },
+      } as unknown as CoreConfig,
+    });
+    expect(withMain.some((l) => l.line.includes("dmScope"))).toBe(true);
+    const unset = identityGateStartupLines({
+      accountId: "default",
+      accountConfig: {},
+      transport: "tcp",
+      coreConfig: BASE_CFG,
+    });
+    expect(unset.some((l) => l.line.includes("dmScope"))).toBe(true);
+    const isolated = identityGateStartupLines({
+      accountId: "default",
+      accountConfig: {},
+      transport: "tcp",
+      coreConfig: {
+        channels: { meshtastic: { host: "192.0.2.10" } },
+        session: { dmScope: "per-channel-peer" },
+      } as unknown as CoreConfig,
+    });
+    expect(isolated.some((l) => l.line.includes("dmScope"))).toBe(false);
   });
 
   it("dmIdentity=off and commandIdentity=policy each emit exactly their own WARN", () => {
@@ -301,7 +340,7 @@ describe("identity gate startup lines (T24 unit level)", () => {
       accountId: "default",
       accountConfig: { dmIdentity: "off", commandIdentity: "policy" },
       transport: "tcp",
-      coreConfig: BASE_CFG,
+      coreConfig: ISOLATED_CFG,
     });
     expect(lines.map((l) => l.level)).toEqual(["warn", "warn"]);
     expect(lines[0]!.line).toContain("dmIdentity=off");
@@ -313,7 +352,7 @@ describe("identity gate startup lines (T24 unit level)", () => {
       accountId: "default",
       accountConfig: {},
       transport: "http",
-      coreConfig: BASE_CFG,
+      coreConfig: ISOLATED_CFG,
     });
     expect(http).toHaveLength(1);
     expect(http[0]!.line).toContain("transport=http");
@@ -321,7 +360,7 @@ describe("identity gate startup lines (T24 unit level)", () => {
       accountId: "default",
       accountConfig: { dmIdentity: "off" },
       transport: "http",
-      coreConfig: BASE_CFG,
+      coreConfig: ISOLATED_CFG,
     });
     expect(off.some((l) => l.line.includes("transport=http"))).toBe(false);
   });
@@ -330,6 +369,7 @@ describe("identity gate startup lines (T24 unit level)", () => {
     observeNodeKey("default", 170, KEY_A, "pki-packet");
     const coreConfig = {
       channels: { meshtastic: { host: "192.0.2.10" } },
+      session: { dmScope: "per-channel-peer" },
       commands: { ownerAllowFrom: ["meshtastic:!000000aa", "!00000002"] },
     } as unknown as CoreConfig;
     const lines = identityGateStartupLines({
@@ -352,7 +392,7 @@ describe("identity gate startup lines (T24 unit level)", () => {
       accountId: "default",
       accountConfig: { pkiManuallyVerified: [`!00000002=${KEY_A}`] },
       transport: "tcp",
-      coreConfig: BASE_CFG,
+      coreConfig: ISOLATED_CFG,
     });
     expect(mismatch).toHaveLength(1);
     expect(mismatch[0]!.line).toContain("differs from the stored pin");
@@ -362,7 +402,7 @@ describe("identity gate startup lines (T24 unit level)", () => {
       accountId: "default",
       accountConfig: { pkiManuallyVerified: [`!00000002=${KEY_B}`] },
       transport: "tcp",
-      coreConfig: BASE_CFG,
+      coreConfig: ISOLATED_CFG,
     });
     expect(match).toEqual([]);
   });
