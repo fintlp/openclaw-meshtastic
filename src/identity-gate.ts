@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { getNodeKeyPin, hasKeyAnchor, meshtasticKeyFingerprint } from "./node-book.js";
 import {
   formatMeshtasticNodeId,
@@ -43,8 +44,9 @@ const BROADCAST_NUM = 0xffffffff;
 /**
  * Owner entries that resolve to mesh node numbers. Entries are compared as
  * node numbers: "meshtastic:<id>" or an unprefixed "<id>" (decimal, !hex or
- * node:N). Entries for other channels never parse into the uint32 range
- * (a phone number is far above 0xffffffff), so they can never match here.
+ * node:N). Phone numbers are far above 0xffffffff and never match; configs
+ * should still channel-prefix non-mesh owner entries (e.g. "whatsapp:+43...")
+ * so no small numeric id from another channel can collide (review LOW #1).
  */
 export function ownerMeshNodeNums(coreConfig: CoreConfig): Set<number> {
   const nums = new Set<number>();
@@ -65,7 +67,9 @@ export function ownerMeshNodeNums(coreConfig: CoreConfig): Set<number> {
 function keyBytesEqual(aBase64: string, bBase64: string): boolean {
   const a = Buffer.from(aBase64, "base64");
   const b = Buffer.from(bBase64, "base64");
-  return a.length === b.length && a.equals(b);
+  // Constant-time compare (review LOW #2); timingSafeEqual requires equal
+  // lengths, so the size guard runs first.
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 function keyFpOfBase64(keyBase64: string): string {
@@ -76,13 +80,22 @@ function manualEntryFor(
   entries: string[] | undefined,
   num: number,
 ): { num: number; key?: string; keyInvalid?: boolean } | null {
+  let match: { num: number; key?: string; keyInvalid?: boolean } | null = null;
   for (const entry of entries ?? []) {
     const parsed = parseManualVerificationEntry(String(entry));
-    if (parsed && parsed.num === num) {
-      return parsed;
+    if (!parsed || parsed.num !== num) {
+      continue;
+    }
+    // Duplicate entries for one id (operator footgun, review LOW #3): the
+    // strongest form wins — a key-bearing entry always beats an id-only one,
+    // regardless of list order.
+    const stronger = Boolean(parsed.key || parsed.keyInvalid);
+    const currentStronger = Boolean(match && (match.key || match.keyInvalid));
+    if (!match || (stronger && !currentStronger)) {
+      match = parsed;
     }
   }
-  return null;
+  return match;
 }
 
 /**

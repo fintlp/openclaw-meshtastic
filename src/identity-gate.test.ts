@@ -110,6 +110,29 @@ describe("identity gate rule edges", () => {
     expect(d.suppressCommands).toBe(true);
   });
 
+  it("owner without a manual entry keeps the plain owner path: pki-verified continuity admits with commands", () => {
+    const coreConfig = {
+      channels: { meshtastic: { host: "192.0.2.10" } },
+      commands: { ownerAllowFrom: ["meshtastic:!00000002"] },
+    } as unknown as CoreConfig;
+    const d = gate({
+      identity: { grade: "pki-verified", keyFp: "001122334455" },
+      coreConfig,
+    });
+    expect(d.action).toBe("admit");
+    expect(d.suppressCommands).toBe(false);
+  });
+
+  it("duplicate manual entries: a key-bound entry beats an id-only one regardless of list order (review LOW #3)", () => {
+    observeNodeKey("default", 2, KEY_B, "pki-packet");
+    const d = gate({
+      identity: { grade: "pki-verified", keyFp: "001122334455" },
+      accountConfig: { pkiManuallyVerified: ["!00000002", `!00000002=${KEY_A}`] },
+    });
+    expect(d.action).toBe("drop");
+    expect(d.reason).toBe("manual-key-mismatch");
+  });
+
   it("owner + key-bound manual entry: a pin that differs from the configured key is dropped, never admitted on continuity (review blocker)", () => {
     observeNodeKey("default", 2, KEY_B, "pki-packet");
     const coreConfig = {
