@@ -9,7 +9,7 @@ import {
 } from "openclaw/plugin-sdk/channel-config-schema";
 import { z } from "zod";
 import { meshtasticChannelConfigUiHints } from "./config-ui-hints.js";
-import { parseMeshtasticNodeNum } from "./normalize.js";
+import { parseManualVerificationEntry, parseMeshtasticNodeNum } from "./normalize.js";
 
 const MeshtasticGroupSchema = z
   .object({
@@ -33,6 +33,19 @@ const MeshtasticNodeIdListSchema = z.array(z.string()).refine(
       return num !== undefined && num > 0 && num < 0xffffffff;
     }),
   { message: 'entries must be Meshtastic node ids (e.g. "!a1b2c3d4", "node:123", or decimal)' },
+);
+
+/** pkiManuallyVerified entries (issue #33): a node id, or key-bound as !id=<base64 of exactly 32 bytes>. */
+const MeshtasticManualVerificationListSchema = z.array(z.string()).refine(
+  (entries) =>
+    entries.every((entry) => {
+      const parsed = parseManualVerificationEntry(entry);
+      return parsed !== null && !parsed.keyInvalid;
+    }),
+  {
+    message:
+      "entries must be Meshtastic node ids, optionally key-bound as !id=<base64 of exactly 32 bytes>",
+  },
 );
 
 const MeshtasticAccountSchemaBase = z
@@ -67,9 +80,11 @@ const MeshtasticAccountSchemaBase = z
       .strict()
       .optional(),
     logInboundMessageContent: z.boolean().optional(),
-    pkiMismatch: z.enum(["unverified", "drop"]).optional().default("unverified"),
+    dmIdentity: z.enum(["known-keys", "strict", "off"]).optional().default("known-keys"),
+    commandIdentity: z.enum(["verified", "policy"]).optional().default("verified"),
+    pkiMismatch: z.enum(["unverified", "drop"]).optional().default("drop"),
     pkiRepin: MeshtasticNodeIdListSchema.optional(),
-    pkiManuallyVerified: MeshtasticNodeIdListSchema.optional(),
+    pkiManuallyVerified: MeshtasticManualVerificationListSchema.optional(),
     durability: z
       .object({
         enabled: z.boolean().optional(),

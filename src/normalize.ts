@@ -220,3 +220,35 @@ export function resolveMeshtasticAllowlistMatch(params: {
 export function isMeshtasticNodeId(raw: string): boolean {
   return NODE_ID_PATTERN.test(raw.trim());
 }
+
+/**
+ * Parse a pkiManuallyVerified entry (issue #33): an id ("!a1b2c3d4", "node:123" or
+ * decimal) or the key-bound form "!id=<base64 32-byte public key>". The key
+ * form binds the contact to the full key read off the Meshtastic app — never
+ * a 12-hex fingerprint (48 bits can be ground). Returns null for an
+ * unparseable id; keyInvalid flags a well-formed id with a malformed key.
+ */
+export function parseManualVerificationEntry(
+  raw: string,
+): { num: number; key?: string; keyInvalid?: boolean } | null {
+  const eq = raw.indexOf("=");
+  const idPart = (eq === -1 ? raw : raw.slice(0, eq)).trim();
+  const num = parseMeshtasticNodeNum(idPart);
+  if (num === undefined || num <= 0 || num >= 0xffffffff) {
+    return null;
+  }
+  if (eq === -1) {
+    return { num };
+  }
+  const key = raw.slice(eq + 1).trim();
+  return isCanonicalMeshtasticKeyBase64(key) ? { num, key } : { num, keyInvalid: true };
+}
+
+/** Canonical base64 of exactly 32 bytes (the X25519 public-key form). */
+export function isCanonicalMeshtasticKeyBase64(key: string): boolean {
+  if (!/^[A-Za-z0-9+/]{43}=$/.test(key)) {
+    return false;
+  }
+  const bytes = Buffer.from(key, "base64");
+  return bytes.length === 32 && bytes.toString("base64") === key;
+}

@@ -677,6 +677,17 @@ export function getKeyTombstone(
     : null;
 }
 
+/**
+ * True when the keybook anchors this node number — a pin OR an eviction
+ * tombstone (identity gate rule 6, issue #33). Read-only.
+ */
+export function hasKeyAnchor(accountId: string, num: number): boolean {
+  if (!validNodeNum(num)) {
+    return false;
+  }
+  return pinsFor(accountId).has(num) || tombstonesFor(accountId).has(num);
+}
+
 function emitKeyEvent(line: string): void {
   try {
     keyEventSink?.(line);

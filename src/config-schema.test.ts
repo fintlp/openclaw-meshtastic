@@ -114,11 +114,11 @@ describe("meshtastic config schema", () => {
     expect(parsed.allowFrom).toEqual([12345, "!00000001"]);
   });
 
-  it("defaults pkiMismatch to unverified and accepts the drop policy (issue #7)", () => {
+  it("defaults pkiMismatch to drop (2026.11.1, MCP07) and still accepts the legacy unverified policy", () => {
     const def = expectValidConfig(MeshtasticConfigSchema.safeParse({}));
-    expect(def.pkiMismatch).toBe("unverified");
-    const drop = expectValidConfig(MeshtasticConfigSchema.safeParse({ pkiMismatch: "drop" }));
-    expect(drop.pkiMismatch).toBe("drop");
+    expect(def.pkiMismatch).toBe("drop");
+    const legacy = expectValidConfig(MeshtasticConfigSchema.safeParse({ pkiMismatch: "unverified" }));
+    expect(legacy.pkiMismatch).toBe("unverified");
     expectInvalidConfig(MeshtasticConfigSchema.safeParse({ pkiMismatch: "verify-anyway" }));
   });
 
@@ -137,4 +137,39 @@ describe("meshtastic config schema", () => {
     expectInvalidConfig(MeshtasticConfigSchema.safeParse({ pkiRepin: ["channel:0"] }));
     expectInvalidConfig(MeshtasticConfigSchema.safeParse({ pkiManuallyVerified: ["not-a-node"] }));
   });
-});
+
+  it("T22 identity gate config: dmIdentity/commandIdentity defaults and the key-bound manual form (MCP07)", () => {
+    const def = expectValidConfig(MeshtasticConfigSchema.safeParse({}));
+    expect(def.dmIdentity).toBe("known-keys");
+    expect(def.commandIdentity).toBe("verified");
+    expectInvalidConfig(MeshtasticConfigSchema.safeParse({ dmIdentity: "paranoid" }));
+    expectInvalidConfig(MeshtasticConfigSchema.safeParse({ commandIdentity: "yolo" }));
+
+    const key = Buffer.alloc(32, 0x11).toString("base64");
+    const ok = expectValidConfig(
+      MeshtasticConfigSchema.safeParse({
+        pkiManuallyVerified: ["!00000002", `!0a0b0c0d=${key}`],
+      }),
+    );
+    expect(ok.pkiManuallyVerified).toEqual(["!00000002", `!0a0b0c0d=${key}`]);
+
+    // Wrong key length, non-base64, non-canonical padding, and bad ids are refused.
+    expectInvalidConfig(
+      MeshtasticConfigSchema.safeParse({
+        pkiManuallyVerified: [`!00000002=${Buffer.alloc(16, 1).toString("base64")}`],
+      }),
+    );
+    expectInvalidConfig(
+      MeshtasticConfigSchema.safeParse({ pkiManuallyVerified: ["!00000002=!!!not-base64!!!"] }),
+    );
+    expectInvalidConfig(
+      MeshtasticConfigSchema.safeParse({ pkiManuallyVerified: [`!00000002=${key.slice(0, -1)}A`] }),
+    );
+    expectInvalidConfig(
+      MeshtasticConfigSchema.safeParse({ pkiManuallyVerified: [`!ffffffff=${key}`] }),
+    );
+    expectInvalidConfig(
+      MeshtasticConfigSchema.safeParse({ pkiManuallyVerified: [`not-a-node=${key}`] }),
+    );
+  });
+})

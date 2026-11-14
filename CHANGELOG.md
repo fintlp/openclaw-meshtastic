@@ -6,6 +6,30 @@ This fork (`fintlp/openclaw-meshtastic`) is the maintained line; upstream
 (`skrashevich/openclaw-meshtastic`) has been dormant since May 2026. Fixes
 are offered upstream as PRs. Date-based versioning: `2026.M.P`.
 
+## 2026.11.1 - 2026-11-14
+
+Security
+
+- **Sender identity is now enforced, not just graded (ClawScan MCP07, #33).** 2026.10.35 graded every inbound message, but admission, pairing, session routing and command authority still followed the claimed sender number — a forged channel-PSK DM claiming a pinned contact's number was dispatched with full command authority. A single identity gate (`src/identity-gate.ts`) now decides admission and command rights from the grade, the keybook and config, and runs at every entry point — live dispatch, custom `onMessage` consumers, and the durability replay — **before** pairing, storage or dispatch. A refusal sends nothing: no reply, no pairing code, no airtime. One throttled log line per sender, fingerprints only.
+- **Owner authority over the mesh now requires proof.** A sender matching `commands.ownerAllowFrom` as a mesh node must be `pki-verified` with key continuity — in every mode, and never from group traffic. Previously the claimed sender number alone carried owner rights.
+- **The plugin-side channel-key decrypt path no longer builds DMs.** A channel-PSK packet addressed to a single node is dropped before decryption (the CVE-2025-53627 downgrade shape; broadcasts unchanged).
+- **Replay of a stored forged event dead-letters** with an `identity-gate:` reason instead of dispatching.
+
+Breaking defaults
+
+- `dmIdentity` (new): `"known-keys"` — a DM from a number with a pinned or tombstoned key must be `pki-verified`. `"strict"` (opt-in) requires PKI from every DM; `"off"` restores 2026.10.35 behaviour.
+- `commandIdentity` (new): `"verified"` — commands run only from a `pki-verified` DM with continuity; everything else arrives as plain text. `"policy"` restores 2026.10.35 behaviour.
+- `pkiMismatch` default flipped to `"drop"`.
+- `pkiManuallyVerified` is now **enforced** in every mode (id-only form requires PKI + continuity + the operator mark) and accepts the key-bound form `!id=<base64 32-byte public key>` — the strong form for high-value contacts.
+
+Migration
+
+- Nothing to do for most nodes: current firmware always DMs with PKI, so real traffic verifies. Watch the one-time startup lines after upgrading.
+- `transport: http` carries no PKI provenance: DMs from known-key nodes are dropped under the new defaults — move to `transport: tcp` (or serial).
+- Owner ids over the mesh now need PKI continuity; group messages never carry owner authority. Prefer no mesh entries in `commands.ownerAllowFrom` at all.
+- To restore 2026.10.35 behaviour (not recommended): `dmIdentity: "off"`, `commandIdentity: "policy"`. A startup WARN line reminds you while either is set.
+- Recommended deployment: gateway radio firmware ≥ 2.7.15, `transport: tcp`, a dedicated least-privilege mesh agent, `session.dmScope: per-channel-peer`, key-bound `pkiManuallyVerified` for high-value contacts.
+
 ## 2026.10.35 - 2026-11-10
 
 Features
