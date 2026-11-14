@@ -14,6 +14,7 @@ Security
 - **Owner authority over the mesh now requires proof.** A sender matching `commands.ownerAllowFrom` as a mesh node must be `pki-verified` with key continuity — in every mode, and never from group traffic. Previously the claimed sender number alone carried owner rights.
 - **The plugin-side channel-key decrypt path no longer builds DMs.** A channel-PSK packet addressed to a single node is dropped before decryption (the CVE-2025-53627 downgrade shape; broadcasts unchanged).
 - **Replay of a stored forged event dead-letters** with an `identity-gate:` reason instead of dispatching.
+- **Replay revalidation of stored verifications.** Queued messages carry the SHA-256 digest of the authenticating key in their identity annotation; on replay the gate compares it with the CURRENT anchor and dead-letters rows signed by a since-retired key (`identity-gate:stale-key`). Rows written before digests existed are dead-lettered too when the sender number is anchored (`identity-gate:no-key-evidence`). Closes the stale-key replay gap found in release review.
 
 Breaking defaults
 
@@ -25,6 +26,7 @@ Breaking defaults
 Migration
 
 - Nothing to do for most nodes: current firmware always DMs with PKI, so real traffic verifies. Watch the one-time startup lines after upgrading.
+- Rows still pending across the upgrade restart that were admitted under 2026.10.35 carry no key digest: when the sender number is anchored they are dead-lettered on replay (once per pending row, fail closed).
 - `transport: http` carries no PKI provenance: DMs from known-key nodes are dropped under the new defaults — move to `transport: tcp` (or serial).
 - Owner ids over the mesh now need PKI continuity; group messages never carry owner authority. Prefer no mesh entries in `commands.ownerAllowFrom` at all.
 - To restore 2026.10.35 behaviour (not recommended): `dmIdentity: "off"`, `commandIdentity: "policy"`. A startup WARN line reminds you while either is set.

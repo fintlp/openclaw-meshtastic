@@ -52,6 +52,13 @@ export type MeshtasticSenderIdentity = {
   firstContact?: boolean;
   /** Short machine-safe detail, e.g. "first-seen pin (TOFU)" or "key changed". */
   detail?: string;
+  /**
+   * Full SHA-256 hex digest of the authenticating key, when known (PKI
+   * provenance). Never the key itself. Persisted with the annotation so a
+   * replayed message can be revalidated against the CURRENT anchor: a
+   * verification signed by a since-retired key is stale evidence.
+   */
+  keySha256?: string;
 };
 
 export type MeshtasticAccountConfig = {

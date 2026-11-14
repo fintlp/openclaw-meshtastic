@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { resolveLoggerBackedRuntime } from "openclaw/plugin-sdk/extension-shared";
 import { Types } from "@meshtastic/core";
 import { resolveMeshtasticAccount } from "./accounts.js";
@@ -370,7 +371,14 @@ export function monitorMeshtasticProvider(
         // surfaced as mismatch, never verified.
         return { grade: "mismatch", detail: "pki_encrypted packet without public-key provenance" };
       }
-      return senderIdentityFromObservation(prov.observation);
+      const identity = senderIdentityFromObservation(prov.observation);
+      // Replay revalidation evidence (release review): persist the digest of
+      // the key that authenticated THIS packet, so a queued message can be
+      // re-checked against the current anchor after a restart.
+      identity.keySha256 = createHash("sha256")
+        .update(Buffer.from(prov.publicKey, "base64"))
+        .digest("hex");
+      return identity;
     };
 
     const channelPsks = new Map<number, Uint8Array>();

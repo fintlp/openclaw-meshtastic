@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ResolvedMeshtasticAccount } from "./accounts.js";
 import { handleMeshtasticInbound } from "./inbound.js";
@@ -145,6 +146,7 @@ function identityEntries(capture: { ctxPayload?: Record<string, unknown> }): Str
 
 
 const KEY_A = Buffer.alloc(32, 0x11).toString("base64");
+const sha256 = (b64: string) => createHash("sha256").update(Buffer.from(b64, "base64")).digest("hex");
 const KEY_B = Buffer.alloc(32, 0x22).toString("base64");
 const BASE_CFG = { channels: { meshtastic: { host: "192.0.2.10" } } } as CoreConfig;
 
@@ -348,5 +350,46 @@ describe("MCP07 identity gate (2026.11.1)", () => {
     const r = await run({ identity: { grade: "psk-grade" }, replayOf: 7, durability });
     expect(r.dispatched).toBe(false);
     expect(durability.deadLetter.mock.calls.length + durability.releaseClaim.mock.calls.length).toBeGreaterThan(0);
+  });
+
+  // --- replay revalidation (release review 2026-11-14) ---------------------
+  it("T25 a stored pki-verified DM whose authenticating key was retired is dead-lettered, not dispatched", async () => {
+    pinWithContinuity(2, KEY_B); // the anchor now holds key B
+    const durability = {
+      findDuplicate: vi.fn(() => null),
+      intake: vi.fn(() => ({ id: 7, duplicate: false })),
+      claim: vi.fn(() => "claimed"),
+      releaseClaim: vi.fn(),
+      deadLetter: vi.fn(),
+      markDispatched: vi.fn(),
+      markComplete: vi.fn(),
+    };
+    const r = await run({
+      identity: { grade: "pki-verified", keyFp: "001122334455", keySha256: sha256(KEY_A) },
+      replayOf: 7,
+      durability,
+    });
+    expect(r.dispatched).toBe(false);
+    expect(durability.deadLetter).toHaveBeenCalledWith("default", 7, "identity-gate:stale-key");
+  });
+
+  it("T26 a stored pki-verified DM whose key still matches the anchor replays normally", async () => {
+    pinWithContinuity(2, KEY_A);
+    const durability = {
+      findDuplicate: vi.fn(() => null),
+      intake: vi.fn(() => ({ id: 7, duplicate: false })),
+      claim: vi.fn(() => "claimed"),
+      releaseClaim: vi.fn(),
+      deadLetter: vi.fn(),
+      markDispatched: vi.fn(),
+      markComplete: vi.fn(),
+    };
+    const r = await run({
+      identity: { grade: "pki-verified", keyFp: "001122334455", keySha256: sha256(KEY_A) },
+      replayOf: 7,
+      durability,
+    });
+    expect(r.dispatched).toBe(true);
+    expect(durability.deadLetter).not.toHaveBeenCalled();
   });
 });

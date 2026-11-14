@@ -90,6 +90,7 @@ Meshtastic encrypts channel traffic with AES-CTR and a shared channel PSK. **AES
 | Rule (first match wins) | Default | What it refuses | What stays open |
 | --- | --- | --- | --- |
 | A message without an identity annotation counts as `psk-grade` | always | — | fail closed, never open |
+| Stale key evidence (replay revalidation) | always | replayed messages whose authenticating key no longer matches the current anchor (`stale-key`), and verified rows without key evidence (`no-key-evidence`) | live traffic is always graded fresh — this only ever fires on replay |
 | Owner ids (mesh entries in `commands.ownerAllowFrom`) | always | group messages from owner ids; owner DMs that are not `pki-verified` with continuity | owner authority over the mesh needs PKI continuity, in every mode |
 | `pkiManuallyVerified` entries | always | id form: DMs that are not `pki-verified` with continuity and the verified mark; key form (`!id=<base64 32-byte key>`): any DM whose pin is not a byte-exact match | group traffic from listed ids follows the normal group rules |
 | `mismatch` grade | `pkiMismatch: "drop"` | the message | `"unverified"` admits it marked — only takes effect with `dmIdentity: "off"` |

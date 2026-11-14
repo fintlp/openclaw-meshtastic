@@ -169,6 +169,7 @@ export async function handleMeshtasticInbound(params: {
     senderIdentity: message.senderIdentity,
     accountConfig: account.config,
     coreConfig: config,
+    replay: params.replayOf !== undefined,
   });
   if (gate.action === "drop") {
     logIdentityGateDrop({

@@ -217,6 +217,8 @@ describe("monitor PKI sender identity (issue #7)", () => {
       detail: "first-seen pin (TOFU)",
     });
     expect(message.senderIdentity?.keyFp).toMatch(/^[0-9a-f]{12}$/);
+    // Replay revalidation evidence rides the annotation (release review).
+    expect(message.senderIdentity?.keySha256).toMatch(/^[0-9a-f]{64}$/);
     // The annotation is a structured field — the text is untouched.
     expect(message.text).toBe("fixture text");
     await vi.waitFor(() =>

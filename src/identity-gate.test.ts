@@ -1,6 +1,7 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   evaluateIdentityGate,
@@ -24,6 +25,7 @@ import type { CoreConfig, MeshtasticSenderIdentity } from "./types.js";
 // conditions T24 verifies through the monitor harness. Generic fixtures only.
 
 const KEY_A = Buffer.alloc(32, 0x11).toString("base64");
+const sha256 = (b64: string) => createHash("sha256").update(Buffer.from(b64, "base64")).digest("hex");
 const KEY_B = Buffer.alloc(32, 0x22).toString("base64");
 const BASE_CFG = { channels: { meshtastic: { host: "192.0.2.10" } } } as CoreConfig;
 
@@ -33,6 +35,7 @@ function gate(params: {
   accountConfig?: Record<string, unknown>;
   coreConfig?: CoreConfig;
   num?: number;
+  replay?: boolean;
 }) {
   return evaluateIdentityGate({
     accountId: "default",
@@ -41,6 +44,7 @@ function gate(params: {
     ...(params.identity ? { senderIdentity: params.identity } : {}),
     accountConfig: (params.accountConfig ?? {}) as never,
     coreConfig: params.coreConfig ?? BASE_CFG,
+    replay: params.replay === true,
   });
 }
 
@@ -121,6 +125,37 @@ describe("identity gate rule edges", () => {
     });
     expect(d.action).toBe("admit");
     expect(d.suppressCommands).toBe(false);
+  });
+
+  it("stale key evidence: a verified annotation whose authenticating key no longer matches the anchor is dropped (release review)", () => {
+    observeNodeKey("default", 2, KEY_B, "pki-packet");
+    const d = gate({
+      identity: { grade: "pki-verified", keyFp: "001122334455", keySha256: sha256(KEY_A) },
+    });
+    expect(d.action).toBe("drop");
+    expect(d.reason).toBe("stale-key");
+  });
+
+  it("key evidence that matches the current anchor passes; a tombstone anchor is honored the same way", () => {
+    observeNodeKey("default", 2, KEY_A, "pki-packet");
+    const d = gate({
+      identity: { grade: "pki-verified", keyFp: "001122334455", keySha256: sha256(KEY_A) },
+    });
+    expect(d.action).toBe("admit");
+  });
+
+  it("replay without key evidence is refused for anchored numbers; the live path is unaffected", () => {
+    observeNodeKey("default", 2, KEY_A, "pki-packet");
+    const legacy = gate({
+      identity: { grade: "pki-verified", keyFp: "001122334455" },
+      replay: true,
+    });
+    expect(legacy.action).toBe("drop");
+    expect(legacy.reason).toBe("no-key-evidence");
+    const live = gate({
+      identity: { grade: "pki-verified", keyFp: "001122334455" },
+    });
+    expect(live.action).toBe("admit");
   });
 
   it("duplicate manual entries: a key-bound entry beats an id-only one regardless of list order (review LOW #3)", () => {

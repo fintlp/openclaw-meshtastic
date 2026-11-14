@@ -1,5 +1,5 @@
-import { timingSafeEqual } from "node:crypto";
-import { getNodeKeyPin, hasKeyAnchor, meshtasticKeyFingerprint } from "./node-book.js";
+import { createHash, timingSafeEqual } from "node:crypto";
+import { getKeyTombstone, getNodeKeyPin, hasKeyAnchor, meshtasticKeyFingerprint } from "./node-book.js";
 import {
   formatMeshtasticNodeId,
   parseManualVerificationEntry,
@@ -108,6 +108,8 @@ export function evaluateIdentityGate(params: {
   senderIdentity?: MeshtasticSenderIdentity;
   accountConfig: GateAccountConfig;
   coreConfig: CoreConfig;
+  /** True when dispatching a stored durability row (replay revalidation). */
+  replay?: boolean;
 }): IdentityGateDecision {
   // Rule 1: no annotation == psk-grade. Fail closed, never open.
   const identity = params.senderIdentity;
@@ -130,6 +132,37 @@ export function evaluateIdentityGate(params: {
     grade,
     ...(identity?.keyFp ? { keyFp: identity.keyFp } : {}),
   });
+
+  // Rule 0 — stale key evidence (release review, replay revalidation). A
+  // message annotated pki-verified carries the digest of the key that
+  // authenticated THIS packet; when that key no longer matches the CURRENT
+  // anchor (pin or tombstone), the verification is stale and must not
+  // inherit trust. On the live path this can never fire: fresh provenance is
+  // always graded against the current keybook.
+  if (grade === "pki-verified" && identity?.keySha256) {
+    const pin = getNodeKeyPin(params.accountId, params.senderNodeNum);
+    const tombstone = pin ? null : getKeyTombstone(params.accountId, params.senderNodeNum);
+    const anchored = pin?.publicKey ?? tombstone?.key;
+    if (anchored) {
+      const anchoredDigest = createHash("sha256")
+        .update(Buffer.from(anchored, "base64"))
+        .digest("hex");
+      if (anchoredDigest !== identity.keySha256) {
+        return decide("drop", "stale-key");
+      }
+    }
+  }
+  // Replay without evidence: rows written before key digests existed carry
+  // only the grade. For an anchored number that is not enough to re-grant
+  // trust after a restart — dead-letter instead of admitting.
+  if (
+    params.replay === true &&
+    grade === "pki-verified" &&
+    !identity?.keySha256 &&
+    hasKeyAnchor(params.accountId, params.senderNodeNum)
+  ) {
+    return decide("drop", "no-key-evidence");
+  }
 
   // Rule 2 — owner authority, unconditional in every mode.
   if (ownerMeshNodeNums(params.coreConfig).has(params.senderNodeNum)) {
