@@ -314,7 +314,8 @@ describe("MCP07 identity gate (2026.11.1)", () => {
       account: account({ groupPolicy: "open", groups: { "*": {} } }),
       overrides: { isGroup: true, target: "channel:0" },
     });
-    if (r.dispatched) expect(suppressed(r.capture.ctxPayload)).toBe(true);
+    expect(r.dispatched).toBe(true);
+    expect(suppressed(r.capture.ctxPayload)).toBe(true);
   });
 
   // --- manual verification ---------------------------------------------------

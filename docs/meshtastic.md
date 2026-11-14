@@ -480,7 +480,7 @@ This plugin supports both via official transports; you are not limited to a sing
 | `defaultTo`      | string   | —             | Default outbound target                |
 | `dmIdentity`     | string   | `"known-keys"` | Identity gate for DMs: `"known-keys"` requires PKI from keybook-anchored numbers, `"strict"` from every DM, `"off"` restores 2026.10.35 |
 | `commandIdentity`  | string   | `"verified"`   | Command authority: `"verified"` only from a PKI-verified DM with continuity, `"policy"` restores 2026.10.35 |
-| `pkiMismatch`    | string   | `"drop"` | Key-mismatch admission: `"drop"` refuses, `"unverified"` admits marked (only with `dmIdentity: "off"`; never verified either way) |
+| `pkiMismatch`    | string   | `"drop"` | Key-mismatch admission: `"drop"` refuses, `"unverified"` admits marked (legacy; an anchored mismatch is dropped under `known-keys`/`strict` anyway) |
 | `pkiRepin`       | array    | `[]`          | Node ids whose stored key pins are cleared at channel start (rotation remediation; remove after re-pin) |
 | `pkiManuallyVerified` | array | `[]`        | Out-of-band verified contacts, enforced at the gate: `!id` or key-bound `!id=<base64 32-byte key>`; never evicted |
 | `groupPolicy`    | string   | `"disabled"`  | Broadcast access policy                |

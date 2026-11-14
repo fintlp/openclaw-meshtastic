@@ -110,6 +110,27 @@ describe("identity gate rule edges", () => {
     expect(d.suppressCommands).toBe(true);
   });
 
+  it("owner + key-bound manual entry: a pin that differs from the configured key is dropped, never admitted on continuity (review blocker)", () => {
+    observeNodeKey("default", 2, KEY_B, "pki-packet");
+    const coreConfig = {
+      channels: { meshtastic: { host: "192.0.2.10" } },
+      commands: { ownerAllowFrom: ["meshtastic:!00000002"] },
+    } as unknown as CoreConfig;
+    const bad = gate({
+      identity: { grade: "pki-verified", keyFp: "001122334455" },
+      coreConfig,
+      accountConfig: { pkiManuallyVerified: [`!00000002=${KEY_A}`] },
+    });
+    expect(bad.action).toBe("drop");
+    expect(bad.reason).toBe("manual-key-mismatch");
+    const good = gate({
+      identity: { grade: "pki-verified", keyFp: "001122334455" },
+      coreConfig,
+      accountConfig: { pkiManuallyVerified: [`!00000002=${KEY_B}`] },
+    });
+    expect(good.action).toBe("admit");
+  });
+
   it("id-only manual form: continuity plus the operator mark admits; an unmarked pin drops", () => {
     observeNodeKey("default", 2, KEY_A, "pki-packet");
     const unmarked = gate({

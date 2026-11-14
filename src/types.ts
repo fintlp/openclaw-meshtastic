@@ -99,8 +99,8 @@ export type MeshtasticAccountConfig = {
    * conflicts with the pinned keybook entry is admitted. "drop" (default since
    * 2026.11.1) refuses it at the identity gate; "unverified" admits the
    * message marked unverified. With dmIdentity "known-keys" or "strict" a
-   * mismatch is dropped anyway; "unverified" only takes effect alongside
-   * dmIdentity "off". Tier-3 actions must fail closed on a mismatch
+   * mismatch is dropped anyway; "unverified" then only changes unanchored
+   * anomalies. Tier-3 actions must fail closed on a mismatch
    * regardless of this setting.
    */
   pkiMismatch?: "unverified" | "drop";

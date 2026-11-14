@@ -130,6 +130,22 @@ export function evaluateIdentityGate(params: {
     if (grade !== "pki-verified" || firstContact) {
       return decide("drop", "owner-unverified");
     }
+    // A key-bound manual entry is the strongest trust root and applies to
+    // owner nodes too (cross-check blocker, 2026-11-14): continuity alone
+    // must never bypass an operator-configured key binding.
+    const ownerManual = manualEntryFor(
+      params.accountConfig.pkiManuallyVerified,
+      params.senderNodeNum,
+    );
+    if (ownerManual?.keyInvalid) {
+      return decide("drop", "manual-key-mismatch");
+    }
+    if (ownerManual?.key) {
+      const pin = getNodeKeyPin(params.accountId, params.senderNodeNum);
+      if (!pin || !keyBytesEqual(pin.publicKey, ownerManual.key)) {
+        return decide("drop", "manual-key-mismatch");
+      }
+    }
     return decide("admit");
   }
 
@@ -168,8 +184,8 @@ export function evaluateIdentityGate(params: {
     }
   }
 
-  // Rule 4 — key mismatch. Default drop; "unverified" only survives as a
-  // legacy escape hatch alongside dmIdentity=off.
+  // Rule 4 — key mismatch. Default drop; "unverified" is a legacy escape
+  // hatch (under known-keys an anchored mismatch is still dropped by rule 6).
   if (grade === "mismatch" && pkiMismatch === "drop") {
     return decide("drop", "pki-mismatch");
   }
