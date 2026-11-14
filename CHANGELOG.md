@@ -15,6 +15,7 @@ Security
 - **The plugin-side channel-key decrypt path no longer builds DMs.** A channel-PSK packet addressed to a single node is dropped before decryption (the CVE-2025-53627 downgrade shape; broadcasts unchanged).
 - **Replay of a stored forged event dead-letters** with an `identity-gate:` reason instead of dispatching.
 - **Replay revalidation of stored verifications.** Queued messages carry the SHA-256 digest of the authenticating key in their identity annotation; on replay the gate compares it with the CURRENT anchor and dead-letters rows signed by a since-retired key (`identity-gate:stale-key`). Rows written before digests existed are dead-lettered too when the sender number is anchored (`identity-gate:no-key-evidence`). Closes the stale-key replay gap found in release review.
+- **Pairing spray can no longer silence the agent (B1).** With `dmPolicy: "pairing"` (the default), every new sender number used to receive a pairing reply — and those replies shared the agent's DM send budget. ~20 forged numbers could exhaust it (no agent replies for up to 10 minutes) and evict real pending requests. Pairing challenges are now issued only to PKI-verified DMs (`pairingIdentity: "verified"`, default): forged senders get no reply, no airtime, no request. Pairing replies additionally carry their own budget (3 per 10 minutes per account), so even `pairingIdentity: "any"` cannot starve the agent.
 
 Breaking defaults
 
@@ -22,6 +23,7 @@ Breaking defaults
 - `commandIdentity` (new): `"verified"` — commands run only from a `pki-verified` DM with continuity; everything else arrives as plain text. `"policy"` restores 2026.10.35 behaviour.
 - `pkiMismatch` default flipped to `"drop"`.
 - `pkiManuallyVerified` is now **enforced** in every mode (id-only form requires PKI + continuity + the operator mark) and accepts the key-bound form `!id=<base64 32-byte public key>` — the strong form for high-value contacts.
+- `pairingIdentity` (new): `"verified"` — nodes on firmware before 2.5 (no PKI) can no longer request a pairing code. `"any"` restores the old behaviour (a startup WARN reminds you; replies stay capped at 3 per 10 minutes).
 
 Migration
 
@@ -30,6 +32,7 @@ Migration
 - `transport: http` carries no PKI provenance: DMs from known-key nodes are dropped under the new defaults — move to `transport: tcp` (or serial).
 - Owner ids over the mesh now need PKI continuity; group messages never carry owner authority. Prefer no mesh entries in `commands.ownerAllowFrom` at all.
 - To restore 2026.10.35 behaviour (not recommended): `dmIdentity: "off"`, `commandIdentity: "policy"`. A startup WARN line reminds you while either is set.
+- Contacts on firmware before 2.5 can no longer request a pairing code (no PKI). Upgrade their firmware, or set `pairingIdentity: "any"` as a compatibility mode.
 - Recommended deployment: gateway radio firmware ≥ 2.7.15, `transport: tcp`, a dedicated least-privilege mesh agent, `session.dmScope: per-channel-peer`, key-bound `pkiManuallyVerified` for high-value contacts.
 
 ## 2026.10.35 - 2026-11-10

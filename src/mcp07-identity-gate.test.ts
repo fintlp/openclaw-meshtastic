@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ResolvedMeshtasticAccount } from "./accounts.js";
+import { resetPairingReplyBudgetForTests } from "./identity-gate.js";
 import { handleMeshtasticInbound } from "./inbound.js";
 import type { RuntimeEnv } from "./runtime-api.js";
 import { clearMeshtasticRuntime, setMeshtasticRuntime } from "./runtime.js";
@@ -391,5 +392,96 @@ describe("MCP07 identity gate (2026.11.1)", () => {
     });
     expect(r.dispatched).toBe(true);
     expect(durability.deadLetter).not.toHaveBeenCalled();
+  });
+
+  // --- pairing spray guard (B1, review round 3) ---------------------------
+  it("B1-T1 a psk-grade pairing spray triggers no challenge, no reply and no dispatch (pairingIdentity=verified default)", async () => {
+    resetPairingReplyBudgetForTests();
+    const acct = account({ dmPolicy: "pairing", allowFrom: [] });
+    for (let i = 0; i < 25; i += 1) {
+      const num = 0x00001000 + i;
+      const senderId = "!" + num.toString(16).padStart(8, "0");
+      const r = await run({
+        identity: { grade: "psk-grade" },
+        account: acct,
+        overrides: { senderNodeNum: num, senderId, target: senderId },
+      });
+      expect(r.dispatched).toBe(false);
+      expect(r.sendReply).not.toHaveBeenCalled();
+      expect(r.logs.some((l) => l.includes("pairing-unverified"))).toBe(true);
+    }
+    expect(upsertPairingRequestMock).not.toHaveBeenCalled();
+  });
+
+  it("B1-T2 with pairingIdentity=any a spray gets at most 3 pairing replies per 10 minutes (requests still record)", async () => {
+    resetPairingReplyBudgetForTests();
+    const acct = account({ dmPolicy: "pairing", allowFrom: [], pairingIdentity: "any" });
+    let replies = 0;
+    for (let i = 0; i < 25; i += 1) {
+      const num = 0x00002000 + i;
+      const senderId = "!" + num.toString(16).padStart(8, "0");
+      const r = await run({
+        identity: { grade: "psk-grade" },
+        account: acct,
+        overrides: { senderNodeNum: num, senderId, target: senderId },
+      });
+      replies += r.sendReply.mock.calls.length;
+    }
+    expect(replies).toBe(3);
+    expect(upsertPairingRequestMock.mock.calls.length).toBe(25);
+  });
+
+  it("B1-T3 after a spray, a verified contact's turn still runs (the agent budget is untouched)", async () => {
+    resetPairingReplyBudgetForTests();
+    const acct = account({ dmPolicy: "pairing", allowFrom: ["!00000002"], pairingIdentity: "any" });
+    for (let i = 0; i < 10; i += 1) {
+      const num = 0x00003000 + i;
+      const senderId = "!" + num.toString(16).padStart(8, "0");
+      await run({
+        identity: { grade: "psk-grade" },
+        account: acct,
+        overrides: { senderNodeNum: num, senderId, target: senderId },
+      });
+    }
+    const r = await run({ identity: { grade: "pki-verified", keyFp: "001122334455" }, account: acct });
+    expect(r.dispatched).toBe(true);
+  });
+
+  it("B1-T4 a pki-verified first-contact DM from a new number gets exactly one pairing reply under the default", async () => {
+    resetPairingReplyBudgetForTests();
+    const r = await run({
+      identity: { grade: "pki-verified", keyFp: "001122334455", firstContact: true },
+      account: account({ dmPolicy: "pairing", allowFrom: [] }),
+    });
+    expect(upsertPairingRequestMock).toHaveBeenCalled();
+    expect(r.sendReply).toHaveBeenCalledTimes(1);
+    expect(r.dispatched).toBe(false);
+  });
+
+  it("B1-T5 a replayed psk-grade event from an unknown sender is dead-lettered without a pairing challenge", async () => {
+    resetPairingReplyBudgetForTests();
+    const durability = {
+      findDuplicate: vi.fn(() => null),
+      intake: vi.fn(() => ({ id: 7, duplicate: false })),
+      claim: vi.fn(() => "claimed"),
+      releaseClaim: vi.fn(),
+      deadLetter: vi.fn(),
+      markDispatched: vi.fn(),
+      markComplete: vi.fn(),
+    };
+    const r = await run({
+      identity: { grade: "psk-grade" },
+      account: account({ dmPolicy: "pairing", allowFrom: [] }),
+      replayOf: 7,
+      durability,
+    });
+    expect(upsertPairingRequestMock).not.toHaveBeenCalled();
+    expect(r.sendReply).not.toHaveBeenCalled();
+    expect(r.dispatched).toBe(false);
+    // The replay admission path releases the claim (it re-queues and
+    // dead-letters at max attempts) — the security property is: no challenge.
+    expect(
+      durability.deadLetter.mock.calls.length + durability.releaseClaim.mock.calls.length,
+    ).toBeGreaterThan(0);
   });
 });

@@ -269,6 +269,7 @@ describe("inbound PKI sender identity (issue #7)", () => {
           // default — this test pins the legacy pairing path explicitly.
           dmIdentity: "off",
           pkiMismatch: "unverified",
+          pairingIdentity: "any", // B1: the verified default blocks the challenge
           dmPolicy: "pairing",
           allowFrom: [],
           groupPolicy: "disabled",

@@ -172,4 +172,12 @@ describe("meshtastic config schema", () => {
       MeshtasticConfigSchema.safeParse({ pkiManuallyVerified: [`not-a-node=${key}`] }),
     );
   });
+
+  it("pairingIdentity defaults to verified and rejects bogus values (B1)", () => {
+    const def = expectValidConfig(MeshtasticConfigSchema.safeParse({}));
+    expect(def.pairingIdentity).toBe("verified");
+    const any = expectValidConfig(MeshtasticConfigSchema.safeParse({ pairingIdentity: "any" }));
+    expect(any.pairingIdentity).toBe("any");
+    expectInvalidConfig(MeshtasticConfigSchema.safeParse({ pairingIdentity: "open" }));
+  });
 })

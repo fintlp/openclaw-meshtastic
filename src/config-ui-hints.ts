@@ -65,6 +65,10 @@ export const meshtasticChannelConfigUiHints = {
     label: "DM Sender Identity",
     help: "Who may DM the agent (2026.11.1 identity gate): known-keys (default) requires a PKI-verified DM from every number the keybook anchors; strict requires PKI verification from every DM; off restores 2026.10.35 behaviour (forged senders admitted — not recommended).",
   },
+  pairingIdentity: {
+    label: "Pairing Identity",
+    help: "Who may request a pairing code: verified (default) only from a PKI-verified DM — forged senders get no reply, no airtime, no request. any restores 2026.10.35 behaviour (pairing replies still capped at 3 per 10 minutes per account). Pre-2.5 firmware nodes cannot pair under verified.",
+  },
   commandIdentity: {
     label: "Command Identity",
     help: "When mesh messages may run commands: verified (default) only from a PKI-verified DM with key continuity; policy restores 2026.10.35 behaviour (forged senders are command-capable — not recommended).",

@@ -347,6 +347,23 @@ describe("identity gate startup lines (T24 unit level)", () => {
     expect(lines[1]!.line).toContain("commandIdentity=policy");
   });
 
+  it("pairingIdentity=any warns; the verified default stays silent (B1)", () => {
+    const any = identityGateStartupLines({
+      accountId: "default",
+      accountConfig: { pairingIdentity: "any" },
+      transport: "tcp",
+      coreConfig: ISOLATED_CFG,
+    });
+    expect(any.some((l) => l.line.includes("pairingIdentity=any"))).toBe(true);
+    const def = identityGateStartupLines({
+      accountId: "default",
+      accountConfig: {},
+      transport: "tcp",
+      coreConfig: ISOLATED_CFG,
+    });
+    expect(def.some((l) => l.line.includes("pairingIdentity"))).toBe(false);
+  });
+
   it("transport=http warns under known-keys but not under off", () => {
     const http = identityGateStartupLines({
       accountId: "default",

@@ -120,6 +120,15 @@ export type MeshtasticAccountConfig = {
    */
   dmIdentity?: "known-keys" | "strict" | "off";
   /**
+   * Pairing challenge gate (issue #33, B1). "verified" (default): pairing
+   * challenges are issued only to pki-verified DMs — forged channel-PSK
+   * senders get no reply, no airtime and no pairing request, so a spray can
+   * neither burn the shared send budget nor evict real requests. "any":
+   * 2026.10.35 behaviour (challenge any admitted new sender), still capped
+   * by the separate pairing-reply budget (3 per 10 minutes per account).
+   */
+  pairingIdentity?: "verified" | "any";
+  /**
    * Command authority over the mesh (issue #33). "verified" (default):
    * commands run only from a pki-verified DM with key continuity; everything
    * else reaches the agent as plain text (CommandInterpretationSuppressed).

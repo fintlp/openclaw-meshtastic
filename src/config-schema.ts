@@ -82,6 +82,7 @@ const MeshtasticAccountSchemaBase = z
     logInboundMessageContent: z.boolean().optional(),
     dmIdentity: z.enum(["known-keys", "strict", "off"]).optional().default("known-keys"),
     commandIdentity: z.enum(["verified", "policy"]).optional().default("verified"),
+    pairingIdentity: z.enum(["verified", "any"]).optional().default("verified"),
     pkiMismatch: z.enum(["unverified", "drop"]).optional().default("drop"),
     pkiRepin: MeshtasticNodeIdListSchema.optional(),
     pkiManuallyVerified: MeshtasticManualVerificationListSchema.optional(),

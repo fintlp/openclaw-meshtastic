@@ -35,7 +35,11 @@ import {
   normalizeMeshtasticAllowEntry,
 } from "./normalize.js";
 import { resolveMeshtasticGroupMatch, resolveMeshtasticRequireMention } from "./policy.js";
-import { evaluateIdentityGate, logIdentityGateDrop } from "./identity-gate.js";
+import {
+  consumePairingReplyBudget,
+  evaluateIdentityGate,
+  logIdentityGateDrop,
+} from "./identity-gate.js";
 import { getMeshtasticRuntime } from "./runtime.js";
 import { sendMessageMeshtastic } from "./send.js";
 import type { CoreConfig, MeshtasticInboundMessage } from "./types.js";
@@ -324,11 +328,58 @@ export async function handleMeshtasticInbound(params: {
   const redeliverEventId = existingDupe?.id;
 
   if (access.ingress.admission === "pairing-required") {
+    // Pairing identity gate (B1, review round 3): a pairing challenge costs
+    // airtime and shares the agent send budget, so an unverified sender gets
+    // none — a forged spray must not silence the agent or evict real
+    // requests. No reply, no pairing request, no dispatch.
+    if ((account.config.pairingIdentity ?? "verified") === "verified" && gate.grade !== "pki-verified") {
+      logIdentityGateDrop({
+        accountId: account.accountId,
+        senderNodeNum: message.senderNodeNum,
+        senderId: message.senderId,
+        isGroup: false,
+        decision: {
+          action: "drop",
+          reason: "pairing-unverified",
+          suppressCommands: true,
+          grade: gate.grade,
+          ...(gate.keyFp ? { keyFp: gate.keyFp } : {}),
+        },
+        log: (line) => runtime.log?.(line),
+      });
+      if (params.replayOf !== undefined) {
+        params.durability?.deadLetter(
+          account.accountId,
+          params.replayOf,
+          "identity-gate:pairing-unverified",
+        );
+      }
+      return;
+    }
     await pairing.issueChallenge({
       senderId: message.senderId,
       senderIdLine: `Your Meshtastic node id: ${message.senderId}`,
       meta: { name: message.senderId },
       sendPairingReply: async (text) => {
+        // Pairing replies carry their own budget (B1): even with
+        // pairingIdentity "any" a spray can never consume the agent's.
+        if (!consumePairingReplyBudget(account.accountId)) {
+          logIdentityGateDrop({
+            accountId: account.accountId,
+            senderNodeNum: message.senderNodeNum,
+            senderId: message.senderId,
+            isGroup: false,
+            decision: {
+              action: "drop",
+              reason: "pairing-budget",
+              suppressCommands: true,
+              grade: gate.grade,
+              ...(gate.keyFp ? { keyFp: gate.keyFp } : {}),
+            },
+            log: (line) => runtime.log?.(line),
+          });
+          return;
+        }
         await deliverMeshtasticReply({
           payload: { text },
           cfg: config,

@@ -36,7 +36,7 @@ export type IdentityGateDecision = {
 
 type GateAccountConfig = Pick<
   MeshtasticAccountConfig,
-  "dmIdentity" | "commandIdentity" | "pkiMismatch" | "pkiManuallyVerified"
+  "dmIdentity" | "commandIdentity" | "pairingIdentity" | "pkiMismatch" | "pkiManuallyVerified"
 >;
 
 const BROADCAST_NUM = 0xffffffff;
@@ -353,6 +353,36 @@ export function resetIdentityGateThrottleForTests(): void {
 }
 
 // ---------------------------------------------------------------------------
+// Pairing-reply budget (B1): pairing replies can never burn the agent budget
+// ---------------------------------------------------------------------------
+
+const PAIRING_REPLY_BUDGET = 3;
+const PAIRING_REPLY_WINDOW_MS = 10 * 60_000;
+const pairingReplyLog = new Map<string, number[]>();
+
+/**
+ * True and consume when a pairing reply fits the per-account budget
+ * (3 per 10 minutes). Agent replies never touch this budget — it exists so a
+ * pairing spray cannot silence the agent even with pairingIdentity "any".
+ */
+export function consumePairingReplyBudget(accountId: string, now = Date.now()): boolean {
+  const windowStart = now - PAIRING_REPLY_WINDOW_MS;
+  const list = (pairingReplyLog.get(accountId) ?? []).filter((t) => t > windowStart);
+  if (list.length >= PAIRING_REPLY_BUDGET) {
+    pairingReplyLog.set(accountId, list);
+    return false;
+  }
+  list.push(now);
+  pairingReplyLog.set(accountId, list);
+  return true;
+}
+
+/** @internal Clears budget state between tests. */
+export function resetPairingReplyBudgetForTests(): void {
+  pairingReplyLog.clear();
+}
+
+// ---------------------------------------------------------------------------
 // Startup checks — one line per condition, once per channel start
 // ---------------------------------------------------------------------------
 
@@ -404,6 +434,13 @@ export function identityGateStartupLines(params: {
     lines.push({
       level: "warn",
       line: `${prefix} WARN dmIdentity=off — forged channel-PSK senders are ADMITTED (2026.10.35 behaviour); set dmIdentity to "known-keys" or "strict"`,
+    });
+  }
+  const pairingIdentity = params.accountConfig.pairingIdentity ?? "verified";
+  if (pairingIdentity === "any") {
+    lines.push({
+      level: "warn",
+      line: `${prefix} WARN pairingIdentity=any — forged channel-PSK senders can trigger pairing replies (airtime; capped at 3 per 10 minutes); set pairingIdentity to "verified"`,
     });
   }
   if (commandIdentity === "policy") {

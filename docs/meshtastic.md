@@ -480,6 +480,7 @@ This plugin supports both via official transports; you are not limited to a sing
 | `defaultTo`      | string   | —             | Default outbound target                |
 | `dmIdentity`     | string   | `"known-keys"` | Identity gate for DMs: `"known-keys"` requires PKI from keybook-anchored numbers, `"strict"` from every DM, `"off"` restores 2026.10.35 |
 | `commandIdentity`  | string   | `"verified"`   | Command authority: `"verified"` only from a PKI-verified DM with continuity, `"policy"` restores 2026.10.35 |
+| `pairingIdentity`  | string   | `"verified"`   | Pairing challenges: `"verified"` only from a PKI-verified DM (forged senders get no reply/request); `"any"` legacy — replies still capped at 3 per 10 minutes per account |
 | `pkiMismatch`    | string   | `"drop"` | Key-mismatch admission: `"drop"` refuses, `"unverified"` admits marked (legacy; an anchored mismatch is dropped under `known-keys`/`strict` anyway) |
 | `pkiRepin`       | array    | `[]`          | Node ids whose stored key pins are cleared at channel start (rotation remediation; remove after re-pin) |
 | `pkiManuallyVerified` | array | `[]`        | `!id`: trusts the first pinned key (TOFU) + requires PKI continuity and the verified mark; `!id=<base64 32-byte key>`: the only true out-of-band binding — use it for high-value contacts; never evicted |
