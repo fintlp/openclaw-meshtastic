@@ -140,9 +140,10 @@ export type MeshtasticAccountConfig = {
    * gate since 2026.11.1 / issue #33): entries are a node id or the key-bound
    * form "!id=<base64 32-byte public key>" (read the key off the Meshtastic
    * app — never a 12-hex fingerprint; 48 bits can be ground). A listed id and
-   * its DMs must be pki-verified; the id-only form also requires key
-   * continuity and the verified mark, the key-bound form a byte-exact pin
-   * match. These pins are never evicted.
+   * its DMs must be pki-verified; the id-only form trusts the first pinned
+   * key (TOFU) and also requires continuity and the verified mark, while the
+   * key-bound form is the only true out-of-band binding (byte-exact pin
+   * match) — use it for high-value contacts. These pins are never evicted.
    */
   pkiManuallyVerified?: string[];
   /** When true, inbound info logs include up to 80 characters of message text (default: metadata only). */

@@ -87,12 +87,12 @@ Meshtastic encrypts channel traffic with AES-CTR and a shared channel PSK. **AES
 
 **What the identity gate enforces (since 2026.11.1).** One decision point (`src/identity-gate.ts`) turns the grade into admission and command rights, and it runs at *every* inbound entry point — live dispatch, a custom `onMessage` consumer, and the durability replay — **before** pairing, storage or dispatch. A refusal sends nothing (no reply, no pairing code, no airtime) and logs one throttled line per sender (fingerprints only, never bodies or keys). The gate only ever removes rights; it never admits a sender your access policy would deny.
 
-| Rule (first match wins) | Default | What it refuses | What stays open |
+| Rule (checked in this order) | Default | What it refuses | What stays open |
 | --- | --- | --- | --- |
 | A message without an identity annotation counts as `psk-grade` | always | — | fail closed, never open |
 | Stale key evidence (replay revalidation) | always | replayed messages whose authenticating key no longer matches the current anchor (`stale-key`), and verified rows without key evidence (`no-key-evidence`) | live traffic is always graded fresh — this only ever fires on replay |
-| Owner ids (mesh entries in `commands.ownerAllowFrom`) | always | group messages from owner ids; owner DMs that are not `pki-verified` with continuity | owner authority over the mesh needs PKI continuity, in every mode |
-| `pkiManuallyVerified` entries | always | id form: DMs that are not `pki-verified` with continuity and the verified mark; key form (`!id=<base64 32-byte key>`): any DM whose pin is not a byte-exact match | group traffic from listed ids follows the normal group rules |
+| Owner ids (mesh entries in `commands.ownerAllowFrom`) | always | group messages from owner ids; owner DMs that are not `pki-verified` with continuity; an owner that is also key-bound in `pkiManuallyVerified` whose pin does not match the bound key | owner authority over the mesh needs PKI continuity, in every mode |
+| `pkiManuallyVerified` entries | always | id form (TOFU — trusts the first pinned key): DMs that are not `pki-verified` with continuity and the verified mark; key form (`!id=<base64 32-byte key>`, the only true out-of-band binding): any DM whose pin is not a byte-exact match | group traffic from listed ids follows the normal group rules |
 | `mismatch` grade | `pkiMismatch: "drop"` | the message | `"unverified"` admits it marked — only takes effect with `dmIdentity: "off"` |
 | `dmIdentity: "strict"` | opt-in | every DM that is not `pki-verified` | nodes on firmware before 2.5 can no longer DM you |
 | `dmIdentity: "known-keys"` | default | DMs from a number with a pin **or tombstone** that are not `pki-verified` | numbers the gateway has never seen a key for (see residual risk) |

@@ -79,7 +79,7 @@ export const meshtasticChannelConfigUiHints = {
   },
   pkiManuallyVerified: {
     label: "PKI Manually Verified Keys",
-    help: "Node ids whose pinned keys you have confirmed out-of-band, enforced at the identity gate: a listed id and its DMs must be PKI-verified. Entries are a node id or the key-bound form !id=<base64 32-byte public key> (read the key off the Meshtastic app — a fingerprint can be ground). Key-bound entries are the strong form for high-value contacts. These pins are never evicted when the key store fills.",
+    help: "Node ids to trust at the identity gate: a listed id and its DMs must be PKI-verified. Id form (a bare node id) trusts the first pinned key (TOFU) and requires continuity and the verified mark; the key-bound form !id=<base64 32-byte public key> is the only true out-of-band binding — use it for high-value contacts. These pins are never evicted when the key store fills.",
   },
 
 } satisfies Record<string, ChannelConfigUiHint>;

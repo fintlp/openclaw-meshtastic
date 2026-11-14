@@ -482,7 +482,7 @@ This plugin supports both via official transports; you are not limited to a sing
 | `commandIdentity`  | string   | `"verified"`   | Command authority: `"verified"` only from a PKI-verified DM with continuity, `"policy"` restores 2026.10.35 |
 | `pkiMismatch`    | string   | `"drop"` | Key-mismatch admission: `"drop"` refuses, `"unverified"` admits marked (legacy; an anchored mismatch is dropped under `known-keys`/`strict` anyway) |
 | `pkiRepin`       | array    | `[]`          | Node ids whose stored key pins are cleared at channel start (rotation remediation; remove after re-pin) |
-| `pkiManuallyVerified` | array | `[]`        | Out-of-band verified contacts, enforced at the gate: `!id` or key-bound `!id=<base64 32-byte key>`; never evicted |
+| `pkiManuallyVerified` | array | `[]`        | `!id`: trusts the first pinned key (TOFU) + requires PKI continuity and the verified mark; `!id=<base64 32-byte key>`: the only true out-of-band binding — use it for high-value contacts; never evicted |
 | `groupPolicy`    | string   | `"disabled"`  | Broadcast access policy                |
 | `groupAllowFrom` | array    | `[]`          | Allowed broadcast senders (empty + allowlist = nobody admitted, fail-closed) |
 | `groups`         | object   | `{}`          | Per-channel policy (`channel:0`, etc.) |

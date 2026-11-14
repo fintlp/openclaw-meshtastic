@@ -168,6 +168,20 @@ describe("identity gate rule edges", () => {
     expect(d.reason).toBe("manual-key-mismatch");
   });
 
+  it("owner branch: a malformed key in the manual entry drops defensively, never silently downgrades (A5)", () => {
+    const coreConfig = {
+      channels: { meshtastic: { host: "192.0.2.10" } },
+      commands: { ownerAllowFrom: ["meshtastic:!00000002"] },
+    } as unknown as CoreConfig;
+    const d = gate({
+      identity: { grade: "pki-verified", keyFp: "001122334455" },
+      coreConfig,
+      accountConfig: { pkiManuallyVerified: ["!00000002=not-a-key"] },
+    });
+    expect(d.action).toBe("drop");
+    expect(d.reason).toBe("manual-key-mismatch");
+  });
+
   it("owner + key-bound manual entry: a pin that differs from the configured key is dropped, never admitted on continuity (review blocker)", () => {
     observeNodeKey("default", 2, KEY_B, "pki-packet");
     const coreConfig = {

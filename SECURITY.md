@@ -94,7 +94,7 @@ rather than instructional:
   with no channel scoping, so no config flag lifts the refusal; automated
   tests pin every form under both flag states.
 - **Sender identity is enforced at intake, not merely graded** (releases after
-  2026.11.1, issue #33 / ClawScan MCP07): one identity gate decides admission
+  2026.10.35, issue #33 / ClawScan MCP07): one identity gate decides admission
   and command rights from the sender-identity grade, the keybook and config,
   and it runs before pairing, storage and dispatch on every inbound path
   (live, custom `onMessage` consumers, and durability replay). Defaults:

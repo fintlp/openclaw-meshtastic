@@ -101,6 +101,52 @@ function manualEntryFor(
 /**
  * Evaluate the gate. First matching rule wins; the rules only ever refuse.
  */
+type ManualEntry = { num: number; key?: string; keyInvalid?: boolean };
+
+/**
+ * The manual-list check shared by rules 2 and 3 (A6: one copy, never two).
+ * Returns the gate decision for a listed sender — admit only when the entry
+ * is fully satisfied.
+ */
+function checkManualEntry(
+  manual: ManualEntry,
+  ctx: {
+    accountId: string;
+    grade: IdentityGateGrade;
+    firstContact: boolean;
+    decide: (action: "admit" | "drop", reason?: string) => IdentityGateDecision;
+  },
+): IdentityGateDecision {
+  const { decide, grade, firstContact, accountId } = ctx;
+  if (manual.keyInvalid) {
+    // The schema rejects this at load; at runtime never silently downgrade a
+    // key-bound entry to a weaker check.
+    return decide("drop", "manual-key-mismatch");
+  }
+  if (manual.key) {
+    // Key-bound form: the configured full key is the trust root, so a
+    // byte-exact pin match proves the contact — first contact included.
+    if (grade !== "pki-verified") {
+      return decide("drop", "manual-unverified");
+    }
+    const pin = getNodeKeyPin(accountId, manual.num);
+    if (!pin || !keyBytesEqual(pin.publicKey, manual.key)) {
+      return decide("drop", "manual-key-mismatch");
+    }
+    return decide("admit");
+  }
+  // Id-only form: TOFU — trust the first pinned key, and require continuity
+  // plus the operator mark.
+  if (grade !== "pki-verified" || firstContact) {
+    return decide("drop", "manual-unverified");
+  }
+  const pin = getNodeKeyPin(accountId, manual.num);
+  if (!pin?.manuallyVerified) {
+    return decide("drop", "manual-unverified");
+  }
+  return decide("admit");
+}
+
 export function evaluateIdentityGate(params: {
   accountId: string;
   senderNodeNum: number;
@@ -176,21 +222,20 @@ export function evaluateIdentityGate(params: {
     if (grade !== "pki-verified" || firstContact) {
       return decide("drop", "owner-unverified");
     }
-    // A key-bound manual entry is the strongest trust root and applies to
-    // owner nodes too (cross-check blocker, 2026-11-14): continuity alone
-    // must never bypass an operator-configured key binding.
+    // A manual entry binds owners too (review round 1 blocker; A6 dedup:
+    // one shared check with rule 3) — continuity alone must never bypass an
+    // operator-configured key binding or verified mark.
     const ownerManual = manualEntryFor(
       params.accountConfig.pkiManuallyVerified,
       params.senderNodeNum,
     );
-    if (ownerManual?.keyInvalid) {
-      return decide("drop", "manual-key-mismatch");
-    }
-    if (ownerManual?.key) {
-      const pin = getNodeKeyPin(params.accountId, params.senderNodeNum);
-      if (!pin || !keyBytesEqual(pin.publicKey, ownerManual.key)) {
-        return decide("drop", "manual-key-mismatch");
-      }
+    if (ownerManual) {
+      return checkManualEntry(ownerManual, {
+        accountId: params.accountId,
+        grade,
+        firstContact,
+        decide,
+      });
     }
     return decide("admit");
   }
@@ -200,33 +245,12 @@ export function evaluateIdentityGate(params: {
   if (!params.isGroup) {
     const manual = manualEntryFor(params.accountConfig.pkiManuallyVerified, params.senderNodeNum);
     if (manual) {
-      if (manual.keyInvalid) {
-        // The schema rejects this at load; at runtime never silently
-        // downgrade a key-bound entry to a weaker check.
-        return decide("drop", "manual-key-mismatch");
-      }
-      if (manual.key) {
-        // Key-bound form: the configured full key is the trust root, so a
-        // byte-exact pin match proves the contact — first contact included.
-        if (grade !== "pki-verified") {
-          return decide("drop", "manual-unverified");
-        }
-        const pin = getNodeKeyPin(params.accountId, params.senderNodeNum);
-        if (!pin || !keyBytesEqual(pin.publicKey, manual.key)) {
-          return decide("drop", "manual-key-mismatch");
-        }
-        return decide("admit");
-      }
-      // Id-only form: out-of-band verification gates on a pin with
-      // established continuity that the operator marked.
-      if (grade !== "pki-verified" || firstContact) {
-        return decide("drop", "manual-unverified");
-      }
-      const pin = getNodeKeyPin(params.accountId, params.senderNodeNum);
-      if (!pin?.manuallyVerified) {
-        return decide("drop", "manual-unverified");
-      }
-      return decide("admit");
+      return checkManualEntry(manual, {
+        accountId: params.accountId,
+        grade,
+        firstContact,
+        decide,
+      });
     }
   }
 
@@ -361,7 +385,7 @@ export function firmwareStartupLine(accountId: string, firmwareVersion?: string)
   return (
     `[${accountId}] meshtastic: WARN gateway radio firmware ${firmwareVersion} is below 2.7.15 — ` +
     "CVE-2025-53627 (channel-key DM downgrade); update the radio firmware " +
-    "(defence in depth — the identity gate enforces regardless)`".replace("`", "")
+    "(defence in depth — the identity gate enforces regardless)"
   );
 }
 
