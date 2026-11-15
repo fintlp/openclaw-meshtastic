@@ -52,6 +52,13 @@ export type MeshtasticSenderIdentity = {
   firstContact?: boolean;
   /** Short machine-safe detail, e.g. "first-seen pin (TOFU)" or "key changed". */
   detail?: string;
+  /**
+   * Full SHA-256 hex digest of the authenticating key, when known (PKI
+   * provenance). Never the key itself. Persisted with the annotation so a
+   * replayed message can be revalidated against the CURRENT anchor: a
+   * verification signed by a since-retired key is stale evidence.
+   */
+  keySha256?: string;
 };
 
 export type MeshtasticAccountConfig = {
@@ -96,12 +103,39 @@ export type MeshtasticAccountConfig = {
   };
   /**
    * PKI key-mismatch policy (issue #7): how a sender whose PKI provenance
-   * conflicts with the pinned keybook entry is admitted. "unverified"
-   * (default) admits the message marked unverified; "drop" refuses it.
-   * Either way it is never admitted as pki-verified, and tier-3 actions must
-   * fail closed on a mismatch regardless of this setting.
+   * conflicts with the pinned keybook entry is admitted. "drop" (default since
+   * 2026.11.1) refuses it at the identity gate; "unverified" admits the
+   * message marked unverified. With dmIdentity "known-keys" or "strict" a
+   * mismatch is dropped anyway; "unverified" then only changes unanchored
+   * anomalies. Tier-3 actions must fail closed on a mismatch
+   * regardless of this setting.
    */
   pkiMismatch?: "unverified" | "drop";
+  /**
+   * DM sender-identity gate (issue #33, ClawScan MCP07). "known-keys"
+   * (default): a DM from a number the keybook anchors (pin OR eviction
+   * tombstone) must be pki-verified. "strict": every DM must be pki-verified
+   * (drops pre-2.5 firmware nodes). "off": 2026.10.35 behaviour — forged
+   * channel-PSK senders are admitted; logged at start, not recommended.
+   */
+  dmIdentity?: "known-keys" | "strict" | "off";
+  /**
+   * Pairing challenge gate (issue #33, B1). "verified" (default): pairing
+   * challenges are issued only to pki-verified DMs — forged channel-PSK
+   * senders get no reply, no airtime and no pairing request, so a spray can
+   * neither burn the shared send budget nor evict real requests. "any":
+   * 2026.10.35 behaviour (challenge any admitted new sender), still capped
+   * by the separate pairing-reply budget (3 per 10 minutes per account).
+   */
+  pairingIdentity?: "verified" | "any";
+  /**
+   * Command authority over the mesh (issue #33). "verified" (default):
+   * commands run only from a pki-verified DM with key continuity; everything
+   * else reaches the agent as plain text (CommandInterpretationSuppressed).
+   * "policy": 2026.10.35 behaviour — forged senders are command-capable;
+   * logged at start, not recommended.
+   */
+  commandIdentity?: "verified" | "policy";
   /**
    * Operator re-pin list (key rotation remediation, issue #7): node ids whose
    * stored key pins are cleared at channel start, so the node's next observed
@@ -111,10 +145,14 @@ export type MeshtasticAccountConfig = {
    */
   pkiRepin?: string[];
   /**
-   * Operator manual-verification list (issue #7): node ids whose pinned keys
-   * are marked manually verified at channel start (the out-of-band ceremony
-   * already happened). Informational in phase 1 — recorded on the pin and
-   * surfaced in the node book; does not change admission by itself.
+   * Operator manual-verification list (issue #7, enforced at the identity
+   * gate since 2026.11.1 / issue #33): entries are a node id or the key-bound
+   * form "!id=<base64 32-byte public key>" (read the key off the Meshtastic
+   * app — never a 12-hex fingerprint; 48 bits can be ground). A listed id and
+   * its DMs must be pki-verified; the id-only form trusts the first pinned
+   * key (TOFU) and also requires continuity and the verified mark, while the
+   * key-bound form is the only true out-of-band binding (byte-exact pin
+   * match) — use it for high-value contacts. These pins are never evicted.
    */
   pkiManuallyVerified?: string[];
   /** When true, inbound info logs include up to 80 characters of message text (default: metadata only). */

@@ -35,6 +35,11 @@ import {
   normalizeMeshtasticAllowEntry,
 } from "./normalize.js";
 import { resolveMeshtasticGroupMatch, resolveMeshtasticRequireMention } from "./policy.js";
+import {
+  consumePairingReplyBudget,
+  evaluateIdentityGate,
+  logIdentityGateDrop,
+} from "./identity-gate.js";
 import { getMeshtasticRuntime } from "./runtime.js";
 import { sendMessageMeshtastic } from "./send.js";
 import type { CoreConfig, MeshtasticInboundMessage } from "./types.js";
@@ -155,6 +160,39 @@ export async function handleMeshtasticInbound(params: {
   params.statusSink?.({
     lastInboundAt: params.replayOf !== undefined ? Date.now() : message.timestamp,
   });
+
+  // Identity gate (#33, ClawScan MCP07): BEFORE access resolution, pairing,
+  // the durability probe and intake. A drop here has no side effects — no
+  // pairing request, no reply, no intake, no agent route; a replayed forged
+  // event dead-letters instead of looping. Pure function, same call in
+  // monitor.ts — never a copy.
+  const gate = evaluateIdentityGate({
+    accountId: account.accountId,
+    senderNodeNum: message.senderNodeNum,
+    isGroup: message.isGroup,
+    senderIdentity: message.senderIdentity,
+    accountConfig: account.config,
+    coreConfig: config,
+    replay: params.replayOf !== undefined,
+  });
+  if (gate.action === "drop") {
+    logIdentityGateDrop({
+      accountId: account.accountId,
+      senderNodeNum: message.senderNodeNum,
+      senderId: message.senderId,
+      isGroup: message.isGroup,
+      decision: gate,
+      log: (line) => runtime.log?.(line),
+    });
+    if (params.replayOf !== undefined) {
+      params.durability?.deadLetter(
+        account.accountId,
+        params.replayOf,
+        `identity-gate:${gate.reason ?? "unknown"}`,
+      );
+    }
+    return;
+  }
 
   const dmPolicy = account.config.dmPolicy ?? "pairing";
   const defaultGroupPolicy = resolveDefaultGroupPolicy(config);
@@ -290,11 +328,58 @@ export async function handleMeshtasticInbound(params: {
   const redeliverEventId = existingDupe?.id;
 
   if (access.ingress.admission === "pairing-required") {
+    // Pairing identity gate (B1, review round 3): a pairing challenge costs
+    // airtime and shares the agent send budget, so an unverified sender gets
+    // none — a forged spray must not silence the agent or evict real
+    // requests. No reply, no pairing request, no dispatch.
+    if ((account.config.pairingIdentity ?? "verified") === "verified" && gate.grade !== "pki-verified") {
+      logIdentityGateDrop({
+        accountId: account.accountId,
+        senderNodeNum: message.senderNodeNum,
+        senderId: message.senderId,
+        isGroup: false,
+        decision: {
+          action: "drop",
+          reason: "pairing-unverified",
+          suppressCommands: true,
+          grade: gate.grade,
+          ...(gate.keyFp ? { keyFp: gate.keyFp } : {}),
+        },
+        log: (line) => runtime.log?.(line),
+      });
+      if (params.replayOf !== undefined) {
+        params.durability?.deadLetter(
+          account.accountId,
+          params.replayOf,
+          "identity-gate:pairing-unverified",
+        );
+      }
+      return;
+    }
     await pairing.issueChallenge({
       senderId: message.senderId,
       senderIdLine: `Your Meshtastic node id: ${message.senderId}`,
       meta: { name: message.senderId },
       sendPairingReply: async (text) => {
+        // Pairing replies carry their own budget (B1): even with
+        // pairingIdentity "any" a spray can never consume the agent's.
+        if (!consumePairingReplyBudget(account.accountId)) {
+          logIdentityGateDrop({
+            accountId: account.accountId,
+            senderNodeNum: message.senderNodeNum,
+            senderId: message.senderId,
+            isGroup: false,
+            decision: {
+              action: "drop",
+              reason: "pairing-budget",
+              suppressCommands: true,
+              grade: gate.grade,
+              ...(gate.keyFp ? { keyFp: gate.keyFp } : {}),
+            },
+            log: (line) => runtime.log?.(line),
+          });
+          return;
+        }
         await deliverMeshtasticReply({
           payload: { text },
           cfg: config,
@@ -343,21 +428,8 @@ export async function handleMeshtasticInbound(params: {
     return;
   }
 
-  // PKI mismatch policy (issue #7): a sender whose PKI provenance conflicts
-  // with the pinned keybook entry is NEVER admitted as verified. Default
-  // "unverified" admits the message carrying its downgrade marker; "drop"
-  // refuses it here, after all ordinary admission gates, before durability
-  // intake. Tier-3 actions must fail closed on mismatch regardless.
-  if (
-    message.senderIdentity?.grade === "mismatch" &&
-    (account.config.pkiMismatch ?? "unverified") === "drop"
-  ) {
-    runtime.log?.(
-      `meshtastic: drop ${message.isGroup ? "group" : "DM"} sender ${message.senderId} ` +
-        `(pki key mismatch: ${message.senderIdentity.detail ?? "key changed"}; pkiMismatch=drop)`,
-    );
-    return;
-  }
+  // PKI mismatch admission is decided by the identity gate (#33) BEFORE
+  // access resolution — nothing here re-checks it.
 
   // Durability intake + claim (#8): session-bound frames are logged as
   // admitted (admission is decided above) and claimed with a lease BEFORE any
@@ -501,7 +573,11 @@ export async function handleMeshtasticInbound(params: {
     Timestamp: message.timestamp,
     OriginatingChannel: CHANNEL_ID,
     OriginatingTo: `meshtastic:${peerId}`,
-    CommandAuthorized: commandAuthorized,
+    CommandAuthorized: gate.suppressCommands ? false : commandAuthorized,
+    // #33: when the gate strips command rights, tell the host to skip command
+    // interpretation entirely (OpenClaw >= 2026.10.5 honours the flag; the
+    // a2a channel uses the same mechanism).
+    ...(gate.suppressCommands ? { CommandInterpretationSuppressed: true } : {}),
     ReplyToId: message.replyToId,
     ChannelStructuredContext:
       structuredContext.length > 0 ? structuredContext : undefined,

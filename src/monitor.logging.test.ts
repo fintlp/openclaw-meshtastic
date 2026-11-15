@@ -191,7 +191,10 @@ describe("monitorMeshtasticProvider logging routes (fork#1)", () => {
       onMeshPacket({
         id: 9,
         from: 456,
-        to: 123,
+        // 2026.11.1 (MCP07): the plugin-side decrypt path is broadcast-only — a
+        // channel-key packet addressed to one node is refused before decrypt
+        // (CVE-2025-53627 class). The routing assertion moves to a broadcast.
+        to: 0xffffffff,
         channel: 0,
         rxTime: 0,
         payloadVariant: { case: "encrypted", value: new Uint8Array([9, 9, 9]) },
@@ -200,7 +203,7 @@ describe("monitorMeshtasticProvider logging routes (fork#1)", () => {
 
     await vi.waitFor(() => {
       expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining("inbound (decrypted) dm from"),
+        expect.stringContaining("inbound (decrypted) group from"),
       );
     });
     expect(consoleLogSpy).not.toHaveBeenCalledWith(expect.stringContaining("secret dm payload"));

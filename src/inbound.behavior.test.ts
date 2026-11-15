@@ -155,11 +155,11 @@ describe("meshtastic inbound behavior", () => {
     clearMeshtasticRuntime();
   });
 
-  it("issues pairing challenge for unknown DM senders", async () => {
+  it("issues pairing challenge for unknown DM senders (legacy pairingIdentity=any; B1 default covers verified in mcp07)", async () => {
     const sendReply = vi.fn(async () => undefined);
     await handleMeshtasticInbound({
       message: createMessage(),
-      account: createAccount(),
+      account: createAccount({ config: { pairingIdentity: "any" } } as never),
       config: { channels: { meshtastic: { host: "192.168.1.10" } } } as CoreConfig,
       runtime: createRuntimeEnv(),
       sendReply,

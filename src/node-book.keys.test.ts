@@ -29,6 +29,7 @@ import {
   setNodeBookPathForTests,
   writeKeyBook,
 } from "./node-book.js";
+import { evaluateIdentityGate } from "./identity-gate.js";
 
 // Keybook (issue #7 phase 1): first-seen pinning, mismatch records, crc32
 // anomaly signal, persistence across restart, and the operator re-pin path.
@@ -648,3 +649,37 @@ describe("tombstone compare precedence and fallbacks (#7 review nits)", () => {
   }, 60000);
 });
 
+describe("identity gate tombstone anchoring (MCP07 T21)", () => {
+  it("an eviction tombstone anchors the number at the identity gate: forged psk-grade DMs stay refused", () => {
+    const victim = consistentNum(0x25);
+    observeNodeKey(ACCT, victim, b64(0x25), "pki-packet");
+    // Flood the store past the cap: the victim pin is evicted to a tombstone.
+    for (let i = 0; i <= KEY_BOOK_MAX_PINS; i += 1) {
+      observeNodeKey(ACCT, 0x05000000 + i, b64(0x40 + (i % 100)), "nodeinfo");
+    }
+    expect(getNodeKeyPin(ACCT, victim)).toBeNull();
+    expect(getKeyTombstone(ACCT, victim)).not.toBeNull();
+
+    const forged = evaluateIdentityGate({
+      accountId: ACCT,
+      senderNodeNum: victim,
+      isGroup: false,
+      senderIdentity: { grade: "psk-grade" },
+      accountConfig: {},
+      coreConfig: {} as never,
+    });
+    expect(forged.action).toBe("drop");
+    expect(forged.reason).toBe("known-key-unverified");
+
+    // A never-anchored number is not affected by rule 6.
+    const unknown = evaluateIdentityGate({
+      accountId: ACCT,
+      senderNodeNum: 0x06666666,
+      isGroup: false,
+      senderIdentity: { grade: "psk-grade" },
+      accountConfig: {},
+      coreConfig: {} as never,
+    });
+    expect(unknown.action).toBe("admit");
+  }, 20000);
+});
