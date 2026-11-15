@@ -34,7 +34,11 @@ import {
   formatMeshtasticNodeId,
   normalizeMeshtasticAllowEntry,
 } from "./normalize.js";
-import { resolveMeshtasticGroupMatch, resolveMeshtasticRequireMention } from "./policy.js";
+import {
+  hasMeshtasticGroupToolPolicy,
+  resolveMeshtasticGroupMatch,
+  resolveMeshtasticRequireMention,
+} from "./policy.js";
 import {
   consumePairingReplyBudget,
   evaluateIdentityGate,
@@ -219,6 +223,11 @@ export async function handleMeshtasticInbound(params: {
     cfg: config as OpenClawConfig,
     surface: CHANNEL_ID,
   });
+  // Command authorization supplied by an allowlist must not become a mention
+  // bypass after the identity gate has stripped command rights. Suppress text
+  // commands in BOTH activation and ingress facts; final context flags below
+  // remain unchanged. Explicit commandIdentity:"policy" keeps legacy behavior.
+  const ingressAllowTextCommands = gate.suppressCommands ? false : allowTextCommands;
   const hasControlCommand = core.channel.text.hasControlCommand(rawBody, config as OpenClawConfig);
   const mentionRegexes = core.channel.mentions.buildMentionRegexes(config as OpenClawConfig);
   const wasMentioned = core.channel.mentions.matchesMentionPatterns(rawBody, mentionRegexes);
@@ -279,13 +288,13 @@ export async function handleMeshtasticInbound(params: {
       groupAllowFromFallbackToAllowFrom: false,
       activation: {
         requireMention: message.isGroup && requireMention,
-        allowTextCommands,
+        allowTextCommands: ingressAllowTextCommands,
       },
     },
     allowFrom: account.config.allowFrom,
     groupAllowFrom: account.config.groupAllowFrom,
     command: {
-      allowTextCommands,
+      allowTextCommands: ingressAllowTextCommands,
       hasControlCommand,
     },
   });
@@ -431,6 +440,38 @@ export async function handleMeshtasticInbound(params: {
   // PKI mismatch admission is decided by the identity gate (#33) BEFORE
   // access resolution — nothing here re-checks it.
 
+  const peerId = message.isGroup ? message.target : message.senderId;
+  const route = resolveAgentRoute({
+    cfg: config as OpenClawConfig,
+    channel: CHANNEL_ID,
+    accountId: account.accountId,
+    peer: {
+      kind: message.isGroup ? "group" : "direct",
+      id: peerId,
+    },
+  });
+
+  // OpenClaw's main group scope removes the group id from the session key;
+  // the host then cannot invoke the group policy adapter for this turn. Do
+  // not let a global default or binding override silently shed a configured
+  // base OR sender restriction. Any authored sender map protects the group,
+  // even when this particular sender has no matching entry.
+  if (
+    message.isGroup &&
+    route.groupScope === "main" &&
+    hasMeshtasticGroupToolPolicy(groupMatch)
+  ) {
+    runtime.log?.(
+      "meshtastic: refuse group " +
+        message.target +
+        ' (groupScope="main" would shed its tool policy; set groupScope="per-group" in the effective binding or session config)',
+    );
+    if (params.replayOf !== undefined) {
+      params.durability?.deadLetter(account.accountId, params.replayOf, "group-scope-main");
+    }
+    return;
+  }
+
   // Durability intake + claim (#8): session-bound frames are logged as
   // admitted (admission is decided above) and claimed with a lease BEFORE any
   // dispatch work. Attempts count at claim, so process deaths and crash loops
@@ -478,17 +519,6 @@ export async function handleMeshtasticInbound(params: {
       return;
     }
   }
-
-  const peerId = message.isGroup ? message.target : message.senderId;
-  const route = resolveAgentRoute({
-    cfg: config as OpenClawConfig,
-    channel: CHANNEL_ID,
-    accountId: account.accountId,
-    peer: {
-      kind: message.isGroup ? "group" : "direct",
-      id: peerId,
-    },
-  });
 
   const fromLabel = message.isGroup ? message.target : message.senderId;
   const { storePath, envelopeOptions, previousTimestamp } =

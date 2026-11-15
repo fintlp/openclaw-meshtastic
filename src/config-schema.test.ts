@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { MeshtasticConfigSchema } from "./config-schema.js";
 
@@ -179,5 +180,146 @@ describe("meshtastic config schema", () => {
     const any = expectValidConfig(MeshtasticConfigSchema.safeParse({ pairingIdentity: "any" }));
     expect(any.pairingIdentity).toBe("any");
     expectInvalidConfig(MeshtasticConfigSchema.safeParse({ pairingIdentity: "open" }));
+  });
+
+  it("accepts deny-only sender keys at root/named accounts and the same node in different groups", () => {
+    const config = expectValidConfig(
+      MeshtasticConfigSchema.safeParse({
+        groups: {
+          "channel:0": {
+            toolsBySender: {
+              "*": { deny: ["exec"] },
+              "id:!AABBCCDD": { deny: ["write"] },
+              "channel:meshtastic:!11223344": { deny: ["read"] },
+            },
+          },
+          "channel:1": {
+            toolsBySender: {
+              "channel:meshtastic:!aabbccdd": { deny: ["status"] },
+            },
+          },
+        },
+        accounts: {
+          work: {
+            groups: {
+              "channel:0": {
+                toolsBySender: { "id:!aabbccdd": { deny: ["exec"] } },
+              },
+            },
+          },
+        },
+      }),
+    );
+
+    expect(config.groups?.["channel:0"]?.toolsBySender?.["id:!AABBCCDD"]).toEqual({
+      deny: ["write"],
+    });
+  });
+
+  it("rejects sender allow/alsoAllow/unknown fields with the deny-only migration at root and named accounts", () => {
+    const rules = [
+      { deny: ["exec"], allow: ["read"] },
+      { deny: ["exec"], alsoAllow: ["read"] },
+      { deny: ["exec"], unexpected: true },
+    ];
+    for (const rule of rules) {
+      for (const scoped of [false, true]) {
+        const group = { toolsBySender: { "id:!aabbccdd": rule } };
+        const result = MeshtasticConfigSchema.safeParse(
+          scoped
+            ? { accounts: { work: { groups: { "channel:0": group } } } }
+            : { groups: { "channel:0": group } },
+        );
+        const issues = expectInvalidConfig(result);
+        expect(issues.map((issue) => issue.message).join("\n")).toContain(
+          "toolsBySender is deny-only; move allowlists to groups.<id>.tools.allow or the dedicated agent",
+        );
+      }
+    }
+  });
+
+  it("rejects bare, malformed, wrong-channel, short and reserved sender keys", () => {
+    const keys = [
+      "!aabbccdd",
+      "id:!aabbccd",
+      "id:!aabbccdd0",
+      "channel:telegram:!aabbccdd",
+      "channel:meshtastic:aabbccdd",
+      "node:!aabbccdd",
+      "id:!00000000",
+      "channel:meshtastic:!FFFFFFFF",
+    ];
+    for (const key of keys) {
+      const issues = expectInvalidConfig(
+        MeshtasticConfigSchema.safeParse({
+          groups: {
+            "channel:0": { toolsBySender: { [key]: { deny: ["exec"] } } },
+          },
+        }),
+      );
+      expect(issues.map((issue) => issue.message).join("\n")).toContain(
+        key === "!aabbccdd" ? 'migrate a bare "!xxxxxxxx" key to "id:!xxxxxxxx"' : "keys must be",
+      );
+    }
+  });
+
+  it("rejects duplicate canonical node keys within one root or named-account map", () => {
+    const toolsBySender = {
+      "id:!AaBbCcDd": { deny: ["exec"] },
+      "channel:meshtastic:!aabbccdd": { deny: ["write"] },
+    };
+    for (const scoped of [false, true]) {
+      const group = { toolsBySender };
+      const issues = expectInvalidConfig(
+        MeshtasticConfigSchema.safeParse(
+          scoped
+            ? { accounts: { work: { groups: { "channel:0": group } } } }
+            : { groups: { "channel:0": group } },
+        ),
+      );
+      expect(issues.map((issue) => issue.message).join("\n")).toContain(
+        "duplicate toolsBySender rule for canonical node !aabbccdd",
+      );
+    }
+  });
+
+  it("requires at least one non-blank deny selector per sender rule", () => {
+    for (const rule of [{}, { deny: [] }, { deny: [""] }, { deny: [" \t "] }]) {
+      expectInvalidConfig(
+        MeshtasticConfigSchema.safeParse({
+          groups: {
+            "channel:0": { toolsBySender: { "*": rule } },
+          },
+        }),
+      );
+    }
+  });
+
+  it("generated manifest carries the same deny-only key and rule validation for root and named accounts", () => {
+    const manifest = JSON.parse(
+      readFileSync(new URL("../openclaw.plugin.json", import.meta.url), "utf8"),
+    ) as any;
+    const properties = manifest.channelConfigs.meshtastic.schema.properties;
+    const root = properties.groups.additionalProperties.properties.toolsBySender;
+    const named =
+      properties.accounts.additionalProperties.properties.groups.additionalProperties.properties
+        .toolsBySender;
+
+    expect(named).toEqual(root);
+    for (const schema of [root, named]) {
+      expect(schema.propertyNames.pattern).toContain("channel:meshtastic:");
+      expect(schema.propertyNames.pattern).toContain("[0-9a-fA-F]{8}");
+      expect(schema.additionalProperties.additionalProperties).toBe(false);
+      expect(schema.additionalProperties.required).toEqual(["deny"]);
+      expect(schema.additionalProperties.properties).toEqual({
+        deny: {
+          minItems: 1,
+          type: "array",
+          items: { type: "string", minLength: 1, pattern: "\\S" },
+        },
+      });
+      expect(schema.additionalProperties.properties.allow).toBeUndefined();
+      expect(schema.additionalProperties.properties.alsoAllow).toBeUndefined();
+    }
   });
 })

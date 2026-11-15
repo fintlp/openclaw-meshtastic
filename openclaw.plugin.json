@@ -135,30 +135,25 @@
                 "toolsBySender": {
                   "type": "object",
                   "propertyNames": {
-                    "type": "string"
+                    "type": "string",
+                    "pattern": "^(?:\\*|(?:id:|channel:meshtastic:)!(?!0{8}$)(?![fF]{8}$)[0-9a-fA-F]{8})$"
                   },
                   "additionalProperties": {
                     "type": "object",
                     "properties": {
-                      "allow": {
-                        "type": "array",
-                        "items": {
-                          "type": "string"
-                        }
-                      },
-                      "alsoAllow": {
-                        "type": "array",
-                        "items": {
-                          "type": "string"
-                        }
-                      },
                       "deny": {
+                        "minItems": 1,
                         "type": "array",
                         "items": {
-                          "type": "string"
+                          "type": "string",
+                          "minLength": 1,
+                          "pattern": "\\S"
                         }
                       }
                     },
+                    "required": [
+                      "deny"
+                    ],
                     "additionalProperties": false
                   }
                 },
@@ -544,30 +539,25 @@
                       "toolsBySender": {
                         "type": "object",
                         "propertyNames": {
-                          "type": "string"
+                          "type": "string",
+                          "pattern": "^(?:\\*|(?:id:|channel:meshtastic:)!(?!0{8}$)(?![fF]{8}$)[0-9a-fA-F]{8})$"
                         },
                         "additionalProperties": {
                           "type": "object",
                           "properties": {
-                            "allow": {
-                              "type": "array",
-                              "items": {
-                                "type": "string"
-                              }
-                            },
-                            "alsoAllow": {
-                              "type": "array",
-                              "items": {
-                                "type": "string"
-                              }
-                            },
                             "deny": {
+                              "minItems": 1,
                               "type": "array",
                               "items": {
-                                "type": "string"
+                                "type": "string",
+                                "minLength": 1,
+                                "pattern": "\\S"
                               }
                             }
                           },
+                          "required": [
+                            "deny"
+                          ],
                           "additionalProperties": false
                         }
                       },

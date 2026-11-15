@@ -11,11 +11,66 @@ import { z } from "zod";
 import { meshtasticChannelConfigUiHints } from "./config-ui-hints.js";
 import { parseManualVerificationEntry, parseMeshtasticNodeNum } from "./normalize.js";
 
+const TOOLS_BY_SENDER_MIGRATION =
+  "toolsBySender is deny-only; move allowlists to groups.<id>.tools.allow or the dedicated agent";
+
+const MeshtasticToolsBySenderKeySchema = z.string().regex(
+  /^(?:\*|(?:id:|channel:meshtastic:)!(?!0{8}$)(?![fF]{8}$)[0-9a-fA-F]{8})$/,
+  'keys must be "*", "id:!xxxxxxxx", or "channel:meshtastic:!xxxxxxxx" with a full non-reserved 8-hex node id; migrate a bare "!xxxxxxxx" key to "id:!xxxxxxxx"',
+);
+
+const MeshtasticToolsBySenderRuleSchema = z
+  .object(
+    {
+      deny: z
+        .array(
+          z
+            .string()
+            .trim()
+            .min(1, "toolsBySender deny selectors must be non-blank")
+            .regex(/\S/, "toolsBySender deny selectors must be non-blank"),
+        )
+        .min(1, "toolsBySender rules require at least one non-blank deny selector"),
+    },
+    { error: TOOLS_BY_SENDER_MIGRATION },
+  )
+  .strict();
+
+const MeshtasticToolsBySenderSchema = z
+  .record(MeshtasticToolsBySenderKeySchema, MeshtasticToolsBySenderRuleSchema, {
+    error: (issue) =>
+      issue.code === "invalid_key"
+        ? issue.issues.map((nested) => nested.message).join("; ")
+        : undefined,
+  })
+  .superRefine((rules, ctx) => {
+    const canonicalKeys = new Map<string, string>();
+    for (const key of Object.keys(rules)) {
+      if (key === "*") {
+        continue;
+      }
+      const canonical = key.toLowerCase().replace(/^channel:meshtastic:/, "id:");
+      const previous = canonicalKeys.get(canonical);
+      if (previous) {
+        ctx.addIssue({
+          code: "custom",
+          path: [key],
+          message:
+            "duplicate toolsBySender rule for canonical node " +
+            canonical.replace(/^id:/, "") +
+            '; remove "' + previous + '" or "' + key + '"',
+        });
+      } else {
+        canonicalKeys.set(canonical, key);
+      }
+    }
+  });
+
 const MeshtasticGroupSchema = z
   .object({
     requireMention: z.boolean().optional(),
     tools: ToolPolicySchema,
-    toolsBySender: z.record(z.string(), ToolPolicySchema).optional(),
+    toolsBySender: MeshtasticToolsBySenderSchema.optional(),
     skills: z.array(z.string()).optional(),
     enabled: z.boolean().optional(),
     allowFrom: z.array(z.union([z.string(), z.number()])).optional(),

@@ -3,7 +3,6 @@ import type {
   DmConfig,
   DmPolicy,
   GroupPolicy,
-  GroupToolPolicyBySenderConfig,
   GroupToolPolicyConfig,
   MarkdownConfig,
   OpenClawConfig,
@@ -13,7 +12,8 @@ import type { BaseProbeResult } from "openclaw/plugin-sdk/core";
 export type MeshtasticGroupConfig = {
   requireMention?: boolean;
   tools?: GroupToolPolicyConfig;
-  toolsBySender?: GroupToolPolicyBySenderConfig;
+  /** Additional sender-scoped denials, layered on (never replacing or widening) the group-wide tools baseline. */
+  toolsBySender?: Record<string, { deny: string[] }>;
   skills?: string[];
   enabled?: boolean;
   allowFrom?: Array<string | number>;

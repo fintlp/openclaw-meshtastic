@@ -199,6 +199,7 @@ describe("MCP07 identity gate (2026.11.1)", () => {
     upsertPairingRequestMock.mockReset().mockResolvedValue({ code: "CODE", created: true });
     shouldHandleTextCommandsMock.mockReset().mockReturnValue(true);
     hasControlCommandMock.mockReset().mockReturnValue(false);
+    matchesMentionPatternsMock.mockReset().mockReturnValue(false);
   });
   afterEach(() => {
     clearMeshtasticRuntime();
@@ -319,6 +320,68 @@ describe("MCP07 identity gate (2026.11.1)", () => {
     });
     expect(r.dispatched).toBe(true);
     expect(suppressed(r.capture.ctxPayload)).toBe(true);
+  });
+
+  it("MCP05: an allowlisted group sender cannot bypass requireMention with a suppressed command", async () => {
+    hasControlCommandMock.mockReturnValue(true);
+    shouldHandleTextCommandsMock.mockReturnValue(true);
+    matchesMentionPatternsMock.mockReturnValue(false);
+    const r = await run({
+      identity: { grade: "psk-grade" },
+      text: "/status",
+      account: account({
+        groupPolicy: "allowlist",
+        groupAllowFrom: ["!00000002"],
+        groups: { "channel:0": { requireMention: true } },
+      }),
+      overrides: { isGroup: true, target: "channel:0" },
+    });
+
+    expect(r.dispatched).toBe(false);
+    expect(r.logs.some((line) => line.includes("missing-mention"))).toBe(true);
+    expect(r.capture.ctxPayload).toBeUndefined();
+  });
+
+  it("MCP05: a genuinely mentioned command-shaped group message dispatches only as plain text", async () => {
+    hasControlCommandMock.mockReturnValue(true);
+    shouldHandleTextCommandsMock.mockReturnValue(true);
+    matchesMentionPatternsMock.mockReturnValue(true);
+    const r = await run({
+      identity: { grade: "psk-grade" },
+      text: "/status",
+      account: account({
+        groupPolicy: "allowlist",
+        groupAllowFrom: ["!00000002"],
+        groups: { "channel:0": { requireMention: true } },
+      }),
+      overrides: { isGroup: true, target: "channel:0" },
+    });
+
+    expect(r.dispatched).toBe(true);
+    expect(r.capture.ctxPayload?.RawBody).toBe("/status");
+    expect(r.capture.ctxPayload?.CommandAuthorized).toBe(false);
+    expect(suppressed(r.capture.ctxPayload)).toBe(true);
+  });
+
+  it("MCP05: commandIdentity=policy preserves the explicitly selected legacy command path", async () => {
+    hasControlCommandMock.mockReturnValue(true);
+    shouldHandleTextCommandsMock.mockReturnValue(true);
+    matchesMentionPatternsMock.mockReturnValue(false);
+    const r = await run({
+      identity: { grade: "psk-grade" },
+      text: "/status",
+      account: account({
+        commandIdentity: "policy",
+        groupPolicy: "allowlist",
+        groupAllowFrom: ["!00000002"],
+        groups: { "channel:0": { requireMention: true } },
+      }),
+      overrides: { isGroup: true, target: "channel:0" },
+    });
+
+    expect(r.dispatched).toBe(true);
+    expect(suppressed(r.capture.ctxPayload)).toBe(false);
+    expect(r.capture.ctxPayload?.CommandAuthorized).toBe(true);
   });
 
   // --- manual verification ---------------------------------------------------
