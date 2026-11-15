@@ -289,6 +289,8 @@ Example group config:
 
 Meshtastic group sender numbers are claims under the shared-PSK trust model. Keep security-critical restrictions in group-wide `tools` or a dedicated least-privilege agent rather than relying only on a per-sender entry.
 
+A group with either policy surface must use `groupScope: "per-group"`. OpenClaw's `main` group scope removes the group id needed to resolve these restrictions, so Meshtastic refuses a protected main-scoped turn before storage or dispatch and logs the required setting. Set `session.groupScope: "per-group"` globally or in the effective binding's `session` override. A protected queued replay is dead-lettered as `group-scope-main`; unprotected groups can still use `main`.
+
 ## Reply-to
 
 Inbound mesh text messages expose `packet.id`. Outbound replies can pass `replyId` to

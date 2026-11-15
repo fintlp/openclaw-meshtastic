@@ -8,7 +8,7 @@ import { meshtasticDedupeKey, openDurabilityStore } from "./durability.js";
 import { handleMeshtasticInbound } from "./inbound.js";
 import type { RuntimeEnv } from "./runtime-api.js";
 import { clearMeshtasticRuntime, getMeshtasticRuntime, setMeshtasticRuntime } from "./runtime.js";
-import type { CoreConfig, MeshtasticInboundMessage } from "./types.js";
+import type { CoreConfig, MeshtasticGroupConfig, MeshtasticInboundMessage } from "./types.js";
 
 const {
   buildMentionRegexesMock,
@@ -503,5 +503,160 @@ describe("inbound durability (#8, redelivery + duplicate-drop)", () => {
     } finally {
       store?.close();
     }
+  });
+});
+
+describe("MCP05 groupScope=main tool-policy guard", () => {
+  beforeEach(() => {
+    readAllowFromStoreMock.mockReset().mockResolvedValue([]);
+    matchesMentionPatternsMock.mockReset().mockReturnValue(false);
+    hasControlCommandMock.mockReset().mockReturnValue(false);
+    shouldHandleTextCommandsMock.mockReset().mockReturnValue(false);
+  });
+
+  afterEach(() => {
+    clearMeshtasticRuntime();
+  });
+
+  function groupAccount(group: MeshtasticGroupConfig) {
+    return createAccount({
+      config: {
+        dmPolicy: "pairing",
+        groupPolicy: "allowlist",
+        channels: [0],
+        groupAllowFrom: ["!00000002"],
+        groups: { "channel:0": { requireMention: false, ...group } },
+      },
+    });
+  }
+
+  function routeConfig(
+    groupScope: "main" | "per-group",
+    bindingScope?: "main" | "per-group",
+  ): CoreConfig {
+    return {
+      session: { groupScope },
+      ...(bindingScope
+        ? {
+            bindings: [
+              {
+                agentId: "main",
+                match: {
+                  channel: "meshtastic",
+                  accountId: "default",
+                  peer: { kind: "group", id: "channel:0" },
+                },
+                session: { groupScope: bindingScope },
+              },
+            ],
+          }
+        : {}),
+      channels: { meshtastic: { host: "192.0.2.10" } },
+    } as CoreConfig;
+  }
+
+  async function runGroupScope(params: {
+    account: ResolvedMeshtasticAccount;
+    config: CoreConfig;
+    replayOf?: number;
+  }) {
+    const inboundRun = vi.fn(async () => ({ dispatched: true }));
+    installDispatchRuntime(inboundRun);
+    const runtime = createRuntimeEnv();
+    const durability = {
+      findDuplicate: vi.fn(() => null),
+      intake: vi.fn(() => ({ id: 7, duplicate: false })),
+      claim: vi.fn(() => "claimed"),
+      releaseClaim: vi.fn(),
+      deadLetter: vi.fn(),
+      markDispatched: vi.fn(),
+      markComplete: vi.fn(),
+    };
+    await handleMeshtasticInbound({
+      message: createMessage({
+        isGroup: true,
+        target: "channel:0",
+        text: "group turn",
+        timestamp: 1790000000000,
+      }),
+      account: params.account,
+      config: params.config,
+      runtime,
+      durability: durability as never,
+      ...(params.replayOf !== undefined ? { replayOf: params.replayOf } : {}),
+    });
+    return { inboundRun, runtime, durability };
+  }
+
+  it("refuses a global main route with a base-only group tool policy before intake or dispatch", async () => {
+    const r = await runGroupScope({
+      account: groupAccount({ tools: { deny: ["write"] } }),
+      config: routeConfig("main"),
+    });
+
+    expect(r.inboundRun).not.toHaveBeenCalled();
+    expect(r.durability.intake).not.toHaveBeenCalled();
+    expect(r.runtime.log).toHaveBeenCalledWith(
+      expect.stringContaining('groupScope="per-group" in the effective binding or session config'),
+    );
+  });
+
+  it("protects a sender-only policy even when the current sender has no matching entry", async () => {
+    const r = await runGroupScope({
+      account: groupAccount({
+        toolsBySender: { "id:!aabbccdd": { deny: ["exec"] } },
+      }),
+      config: routeConfig("main"),
+    });
+
+    expect(r.inboundRun).not.toHaveBeenCalled();
+    expect(r.durability.intake).not.toHaveBeenCalled();
+    expect(r.runtime.log).toHaveBeenCalledWith(expect.stringContaining("would shed its tool policy"));
+  });
+
+  it("honors a binding that overrides a per-group global default to main", async () => {
+    const r = await runGroupScope({
+      account: groupAccount({ tools: { deny: ["write"] } }),
+      config: routeConfig("per-group", "main"),
+    });
+
+    expect(r.inboundRun).not.toHaveBeenCalled();
+    expect(r.durability.intake).not.toHaveBeenCalled();
+    expect(r.runtime.log).toHaveBeenCalledWith(expect.stringContaining('groupScope="main"'));
+  });
+
+  it("honors a binding that restores per-group under a main global default", async () => {
+    const r = await runGroupScope({
+      account: groupAccount({ tools: { deny: ["write"] } }),
+      config: routeConfig("main", "per-group"),
+    });
+
+    expect(r.inboundRun).toHaveBeenCalled();
+    expect(r.durability.intake).toHaveBeenCalled();
+    expect(r.durability.deadLetter).not.toHaveBeenCalled();
+  });
+
+  it("dead-letters a protected replay with the terminal group-scope-main reason", async () => {
+    const r = await runGroupScope({
+      account: groupAccount({ tools: { deny: ["write"] } }),
+      config: routeConfig("main"),
+      replayOf: 7,
+    });
+
+    expect(r.inboundRun).not.toHaveBeenCalled();
+    expect(r.durability.intake).not.toHaveBeenCalled();
+    expect(r.durability.deadLetter).toHaveBeenCalledWith("default", 7, "group-scope-main");
+    expect(r.durability.releaseClaim).not.toHaveBeenCalled();
+  });
+
+  it("allows an unprotected group to use a main route as a positive control", async () => {
+    const r = await runGroupScope({
+      account: groupAccount({}),
+      config: routeConfig("main"),
+    });
+
+    expect(r.inboundRun).toHaveBeenCalled();
+    expect(r.durability.intake).toHaveBeenCalled();
+    expect(r.durability.deadLetter).not.toHaveBeenCalled();
   });
 });

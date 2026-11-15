@@ -67,6 +67,16 @@ export function resolveMeshtasticRequireMention(params: {
   return false;
 }
 
+export function hasMeshtasticGroupToolPolicy(
+  match: Pick<MeshtasticGroupMatch, "groupConfig" | "wildcardConfig">,
+): boolean {
+  const configs = [match.wildcardConfig, match.groupConfig];
+  return configs.some(
+    (config) =>
+      config?.tools !== undefined || Object.keys(config?.toolsBySender ?? {}).length > 0,
+  );
+}
+
 function addDenials(target: string[], seen: Set<string>, denials: string[] | undefined) {
   for (const denial of denials ?? []) {
     if (!seen.has(denial)) {

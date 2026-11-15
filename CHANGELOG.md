@@ -11,10 +11,12 @@ are offered upstream as PRs. Date-based versioning: `2026.M.P`.
 Security
 
 - **Meshtastic group `toolsBySender` rules are now enforced as additional denials (MCP05 / #40).** The registered adapter preserves the exact-or-wildcard group-wide `tools` baseline and adds both wildcard-group and exact-group sender denials. Each map's `*` rule is a floor even when a node-specific rule also matches; a missing sender id conservatively applies the union of all configured sender denials. A recognized group with no effective policy returns neutral `{ deny: [] }`, preventing generic host fallback from selecting a different account's group map.
+- **Protected mesh groups can no longer be routed through `groupScope: "main"`.** A main-scoped session drops the group id before OpenClaw invokes the channel policy adapter, silently shedding both pre-existing group-wide `tools` and sender restrictions. Meshtastic now resolves the effective route after access checks and refuses such a turn before durability intake or dispatch, with an actionable `per-group` log. Replay dead-letters the row as `group-scope-main`. The guard uses the resolved route, so a binding override cannot bypass it, and treats any configured sender map as protected even when the current sender has no matching rule.
 
 Migration
 
 - **Sender-scoped rules are deny-only.** Use keys `*`, `id:!aabbccdd`, or `channel:meshtastic:!aabbccdd` (full eight-hex, non-reserved node ids). Migrate a bare `!aabbccdd` key to `id:!aabbccdd`. Sender `allow`, `alsoAllow`, and unknown rule fields are startup errors: move intended baseline allowlists to `groups.<id>.tools.allow` or the dedicated agent's policy, and express intended sender restrictions as explicit `deny` selectors. Duplicate spellings of one node in a single map are rejected; the same node may have rules in different group scopes, which then both apply.
+- **Keep tool-restricted groups on `per-group` routing.** If either group-wide `tools` or any `toolsBySender` rule applies, set `session.groupScope: "per-group"` globally or in the matching binding's `session` block. Main-scoped protected turns are refused deliberately; unprotected groups and direct messages are unchanged.
 
 ## 2026.11.1 - 2026-11-14
 

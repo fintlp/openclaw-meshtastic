@@ -92,6 +92,11 @@ rather than instructional:
   allow/alsoAllow fields are rejected instead of replacing a group deny. Mesh
   group sender numbers are still claims, so security-critical denies belong in
   group-wide policy or on a dedicated least-privilege agent.
+- **Protected groups keep their policy-bearing session scope (2026.11.2):**
+  when group-wide or sender tool policy applies, `groupScope: "main"` is refused
+  before durability intake or dispatch because it strips the group id the host
+  needs for policy resolution. Use `per-group` globally or in the effective
+  binding; protected replays terminate as `group-scope-main`.
 - **Reserved broadcast addresses are refused unconditionally** (releases after
   2026.10.24): the send path refuses the reserved broadcast node number in
   every accepted form (`4294967295`, `node:4294967295`, `!ffffffff` any
