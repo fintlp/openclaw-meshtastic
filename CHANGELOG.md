@@ -6,7 +6,7 @@ This fork (`fintlp/openclaw-meshtastic`) is the maintained line; upstream
 (`skrashevich/openclaw-meshtastic`) has been dormant since May 2026. Fixes
 are offered upstream as PRs. Date-based versioning: `2026.M.P`.
 
-## 2026.11.2 - unreleased
+## 2026.11.2 - 2026-11-15
 
 Security
 
