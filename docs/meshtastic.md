@@ -291,6 +291,8 @@ Meshtastic group sender numbers are claims under the shared-PSK trust model. Kee
 
 A group with either policy surface must use `groupScope: "per-group"`. OpenClaw's `main` group scope removes the group id needed to resolve these restrictions, so Meshtastic refuses a protected main-scoped turn before storage or dispatch and logs the required setting. Set `session.groupScope: "per-group"` globally or in the effective binding's `session` override. A protected queued replay is dead-lettered as `group-scope-main`; unprotected groups can still use `main`.
 
+With the default `commandIdentity: "verified"`, command-shaped group text cannot bypass `requireMention` after the identity gate has stripped command rights. An unmentioned recognized command is dropped; a genuinely mentioned message dispatches as plain text with command interpretation suppressed. Verified, continuity-checked DMs keep their command behavior. The explicit `commandIdentity: "policy"` compatibility mode retains the legacy command path.
+
 ## Reply-to
 
 Inbound mesh text messages expose `packet.id`. Outbound replies can pass `replyId` to

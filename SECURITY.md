@@ -97,6 +97,11 @@ rather than instructional:
   before durability intake or dispatch because it strips the group id the host
   needs for policy resolution. Use `per-group` globally or in the effective
   binding; protected replays terminate as `group-scope-main`.
+- **Command suppression precedes mention evaluation (2026.11.2):** under the
+  default verified command-identity gate, an allowlisted group sender cannot
+  use a recognized slash command to bypass `requireMention`. Mentioned text is
+  dispatched without command authority; verified DMs and the explicit legacy
+  `commandIdentity: "policy"` mode retain their documented behavior.
 - **Reserved broadcast addresses are refused unconditionally** (releases after
   2026.10.24): the send path refuses the reserved broadcast node number in
   every accepted form (`4294967295`, `node:4294967295`, `!ffffffff` any

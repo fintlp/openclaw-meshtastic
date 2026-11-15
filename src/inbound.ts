@@ -223,6 +223,11 @@ export async function handleMeshtasticInbound(params: {
     cfg: config as OpenClawConfig,
     surface: CHANNEL_ID,
   });
+  // Command authorization supplied by an allowlist must not become a mention
+  // bypass after the identity gate has stripped command rights. Suppress text
+  // commands in BOTH activation and ingress facts; final context flags below
+  // remain unchanged. Explicit commandIdentity:"policy" keeps legacy behavior.
+  const ingressAllowTextCommands = gate.suppressCommands ? false : allowTextCommands;
   const hasControlCommand = core.channel.text.hasControlCommand(rawBody, config as OpenClawConfig);
   const mentionRegexes = core.channel.mentions.buildMentionRegexes(config as OpenClawConfig);
   const wasMentioned = core.channel.mentions.matchesMentionPatterns(rawBody, mentionRegexes);
@@ -283,13 +288,13 @@ export async function handleMeshtasticInbound(params: {
       groupAllowFromFallbackToAllowFrom: false,
       activation: {
         requireMention: message.isGroup && requireMention,
-        allowTextCommands,
+        allowTextCommands: ingressAllowTextCommands,
       },
     },
     allowFrom: account.config.allowFrom,
     groupAllowFrom: account.config.groupAllowFrom,
     command: {
-      allowTextCommands,
+      allowTextCommands: ingressAllowTextCommands,
       hasControlCommand,
     },
   });
