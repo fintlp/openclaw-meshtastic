@@ -38,7 +38,11 @@ import {
   normalizeMeshtasticMessagingTarget,
 } from "./normalize.js";
 import { meshtasticOutboundBaseAdapter } from "./outbound-base.js";
-import { resolveMeshtasticGroupMatch, resolveMeshtasticRequireMention } from "./policy.js";
+import {
+  resolveMeshtasticGroupMatch,
+  resolveMeshtasticRequireMention,
+  resolveMeshtasticSenderToolDenials,
+} from "./policy.js";
 import { probeMeshtastic } from "./probe.js";
 import { resolveMeshtasticOutboundSessionRoute } from "./session-route.js";
 import { meshtasticSetupAdapter, meshtasticSetupWizard } from "./setup-surface.js";
@@ -176,16 +180,18 @@ export const meshtasticPlugin: ChannelPlugin<ResolvedMeshtasticAccount, Meshtast
             wildcardConfig: match.wildcardConfig,
           });
         },
-        resolveToolPolicy: ({ cfg, accountId, groupId }) => {
-          const account = resolveMeshtasticAccount({ cfg: cfg as CoreConfig, accountId });
+        resolveToolPolicy: ({ cfg, accountId, groupId, senderId, senderPolicyMode }) => {
           if (!groupId) {
             return undefined;
           }
-          const match = resolveMeshtasticGroupMatch({
+          const account = resolveMeshtasticAccount({ cfg: cfg as CoreConfig, accountId });
+          return resolveMeshtasticSenderToolDenials({
             groups: account.config.groups,
             target: groupId,
+            senderId,
+            senderPolicyMode,
+            messageProvider: "meshtastic",
           });
-          return match.groupConfig?.tools ?? match.wildcardConfig?.tools;
         },
       },
       messaging: {

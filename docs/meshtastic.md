@@ -270,7 +270,13 @@ Example group config:
       groupPolicy: "allowlist",
       channels: [3],
       groups: {
-        "channel:3": { requireMention: true },
+        "channel:3": {
+          requireMention: true,
+          tools: { deny: ["write"] },
+          toolsBySender: {
+            "id:!aabbccdd": { deny: ["exec"] },
+          },
+        },
       },
       allowFrom: ["!aabbccdd"],
       groupAllowFrom: ["!aabbccdd"],   // required: allowlist gates channels, not senders
@@ -278,6 +284,10 @@ Example group config:
   },
 }
 ```
+
+`groups.<id>.tools` is the group-wide baseline. `groups.<id>.toolsBySender` adds sender-scoped **denials only**; it cannot replace or widen that baseline with sender grants. Exact-group and wildcard-group (`groups.*`) sender maps both apply, and each map's `*` denials remain a floor alongside a matching node rule. Keys accept `*`, `id:!aabbccdd`, and `channel:meshtastic:!aabbccdd`; migrate bare `!aabbccdd` keys to the `id:` form. Move allowlists to `groups.<id>.tools.allow` or a dedicated agent. If sender id is unavailable, all configured sender denials apply conservatively.
+
+Meshtastic group sender numbers are claims under the shared-PSK trust model. Keep security-critical restrictions in group-wide `tools` or a dedicated least-privilege agent rather than relying only on a per-sender entry.
 
 ## Reply-to
 
@@ -487,6 +497,8 @@ This plugin supports both via official transports; you are not limited to a sing
 | `groupPolicy`    | string   | `"disabled"`  | Broadcast access policy                |
 | `groupAllowFrom` | array    | `[]`          | Allowed broadcast senders (empty + allowlist = nobody admitted, fail-closed) |
 | `groups`         | object   | `{}`          | Per-channel policy (`channel:0`, etc.) |
+| `groups.<id>.tools` | object | —             | Group-wide tool baseline (`allow`, `alsoAllow`, `deny`) |
+| `groups.<id>.toolsBySender` | object | —     | Additional deny-only sender rules; keys `*`, `id:!xxxxxxxx`, or `channel:meshtastic:!xxxxxxxx` |
 | `mentionPatterns`| array    | `[]`          | Regex patterns for mention detection   |
 | `markdown`       | object   | —             | Markdown rendering options             |
 | `historyLimit`   | integer  | —             | Group history limit                    |

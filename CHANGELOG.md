@@ -6,6 +6,16 @@ This fork (`fintlp/openclaw-meshtastic`) is the maintained line; upstream
 (`skrashevich/openclaw-meshtastic`) has been dormant since May 2026. Fixes
 are offered upstream as PRs. Date-based versioning: `2026.M.P`.
 
+## 2026.11.2 - unreleased
+
+Security
+
+- **Meshtastic group `toolsBySender` rules are now enforced as additional denials (MCP05 / #40).** The registered adapter preserves the exact-or-wildcard group-wide `tools` baseline and adds both wildcard-group and exact-group sender denials. Each map's `*` rule is a floor even when a node-specific rule also matches; a missing sender id conservatively applies the union of all configured sender denials. A recognized group with no effective policy returns neutral `{ deny: [] }`, preventing generic host fallback from selecting a different account's group map.
+
+Migration
+
+- **Sender-scoped rules are deny-only.** Use keys `*`, `id:!aabbccdd`, or `channel:meshtastic:!aabbccdd` (full eight-hex, non-reserved node ids). Migrate a bare `!aabbccdd` key to `id:!aabbccdd`. Sender `allow`, `alsoAllow`, and unknown rule fields are startup errors: move intended baseline allowlists to `groups.<id>.tools.allow` or the dedicated agent's policy, and express intended sender restrictions as explicit `deny` selectors. Duplicate spellings of one node in a single map are rejected; the same node may have rules in different group scopes, which then both apply.
+
 ## 2026.11.1 - 2026-11-14
 
 Security

@@ -86,6 +86,12 @@ rather than instructional:
   is gone, pinned by tests.
   `groupTransmit: false` governs the OUTBOUND direction only — it does not stop
   inbound channel messages from triggering the agent.
+- **Group tool restrictions remain additive (2026.11.2, MCP05 / #40):**
+  `groups.<id>.toolsBySender` accepts deny-only rules and adds them to the
+  group-wide `tools` baseline; wildcard and exact-group maps both apply. Sender
+  allow/alsoAllow fields are rejected instead of replacing a group deny. Mesh
+  group sender numbers are still claims, so security-critical denies belong in
+  group-wide policy or on a dedicated least-privilege agent.
 - **Reserved broadcast addresses are refused unconditionally** (releases after
   2026.10.24): the send path refuses the reserved broadcast node number in
   every accepted form (`4294967295`, `node:4294967295`, `!ffffffff` any
