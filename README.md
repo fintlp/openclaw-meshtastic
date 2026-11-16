@@ -46,7 +46,7 @@ Five minutes of [docs/meshtastic.md](docs/meshtastic.md) saves the evening.
 ## What it does, in one breath
 
 - **Direct messages (DMs):** full two-way chat, with pairing/allowlist/open access control.
-- **Mesh broadcast channels:** per-channel group policy (allowlist by default) — plus a code-level guard: channel replies stay **refused in the send path** until you set `groupTransmit: true`. More on that choice below.
+- **Mesh broadcast channels:** per-channel group policy (`disabled` by default — channel traffic never triggers the agent unless you opt in) — plus a code-level guard: channel replies stay **refused in the send path** until you set `groupTransmit: true`. More on that choice below.
 - **Three official transports:** TCP (4403, default), HTTP (node API), USB serial.
 - **Client-side AES-CTR decryption** for TCP/serial — encrypted mesh traffic works out of the box.
 - **Reply-to threading, multi-account, multi-agent binding.**
