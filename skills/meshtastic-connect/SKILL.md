@@ -62,7 +62,11 @@ openclaw channels add meshtastic --transport tcp --host 192.168.1.10
 
 ## Node map on demand (once connected)
 
-The plugin writes `~/.openclaw/state/meshtastic-nodes.json` (named accounts: `.<accountId>.json`): every known node with name, role, `lat`/`lon` (when shared), `lastHeard` (epoch s), `precisionBits`, `self`. For "show me the mesh": keep nodes with lat/lon, build a GeoJSON FeatureCollection (coordinates `[lon, lat]`), reply with `https://geojson.io/#data=data:application/json,<encodeURIComponent(json)>`. Zero airtime. Owner only, never in reply to a mesh DM session. Full recipe: docs/meshtastic.md, "Node book".
+The plugin writes `~/.openclaw/state/meshtastic-nodes.json` (named accounts: `.<accountId>.json`): every known node with name, role, `lat`/`lon` (when shared), `lastHeard` (epoch s), `precisionBits`, `self`. These are the real-world positions of other people's radios — treat the file and anything derived from it as sensitive (it is written mode 0600; keep it out of shared folders).
+
+For "show me the mesh", prefer the local path: keep nodes with lat/lon, build a GeoJSON FeatureCollection (coordinates `[lon, lat]`), write it to a local file and open it in a local/offline viewer — nothing leaves the machine.
+
+The zero-airtime shortcut is a `https://geojson.io/#data=data:application/json,<encodeURIComponent(json)>` link — generate it only on explicit owner request, with the warning attached: the fragment is never sent to geojson.io's server (the page decodes it locally), but opening the link exposes every embedded coordinate to the third-party viewer's JavaScript and to basemap tile servers, and the full link persists in chat and browser history — anyone holding it sees the nodes. Owner only, never in reply to a mesh DM session. Full recipe: docs/meshtastic.md, "Node book".
 
 ## Maintenance & support
 

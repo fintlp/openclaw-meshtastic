@@ -420,9 +420,11 @@ for strangers (see "Multi-agent setup" for a restricted mesh agent).
 ### Recipe: node map on demand
 
 Ask your agent "show me the mesh" on WhatsApp or Telegram and get back a link
-that opens a map of all positioned nodes. The map is drawn by
-[geojson.io](https://geojson.io) in the browser; no new modules, no image
-rendering, zero airtime.
+that opens a map of all positioned nodes. For maximum privacy the
+FeatureCollection can be written to a local file and opened in an offline
+viewer — nothing leaves the machine. The zero-airtime default is a link whose
+map is drawn by [geojson.io](https://geojson.io) in the browser; no new
+modules, no image rendering.
 
 1. Read `meshtastic-nodes.json` for the account.
 2. Keep nodes that have `lat` and `lon`.
@@ -443,9 +445,10 @@ rendering, zero airtime.
   airtime); verify positions, which every node reports about itself.
 - **Privacy:** the map data sits after the `#`, which browsers never send to
   the geojson.io server; the page decodes it locally. Basemap tiles still come
-  from a tile server, which sees the map area. Anyone with the link sees the
-  nodes, including your own, so send it to the owner only and never in reply
-  to a mesh DM session.
+  from a tile server, which sees the map area. The full link persists in chat
+  and browser history, and anyone holding it sees the nodes, including your
+  own — generate it only on explicit owner request, send it to the owner only,
+  and never in reply to a mesh DM session.
 
 The same recipe exists for MeshCore (openclaw-meshcore, docs/USE-CASES.md,
 recipe 7); both lists use the same field names, so one instruction can draw
