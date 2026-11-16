@@ -17,7 +17,7 @@ Get a user's OpenClaw agent onto their Meshtastic mesh — reachable by DM from 
 
 1. **A Meshtastic node the gateway can reach.** Any device with WiFi (Heltec V3, T-Beam, LilyGo) on the same LAN, or a USB-serial node on the gateway machine.
 2. **LoRa region set on the node** (Meshtastic phone app → LoRa → Region). Region UNSET = the node cannot transmit. This is also law, not preference.
-3. Current firmware (2.5+ recommended).
+3. Current firmware (2.7.15+ recommended — older releases carry the unpatched CVE-2025-53627 PKI vulnerability, and the plugin warns at startup below 2.7.15).
 
 ## Compatibility (read before installing)
 
@@ -52,12 +52,13 @@ openclaw channels add meshtastic --transport tcp --host 192.168.1.10
 
 - `dmPolicy: "pairing"` — every new contact needs explicit approval.
 - `groupTransmit: false` — the send path **refuses all channel/broadcast messages** until deliberately enabled (LoRa airtime is a shared commons; there is no delete button on the airwaves). Group listening with mention-gating is available either way.
+- `dmIdentity: "known-keys"` (default since plugin 2026.11.1) — an inbound identity gate drops DMs from senders whose pinned or tombstoned key fails verification, before pairing or dispatch, logging one throttled line per sender (fingerprints only, never bodies or keys). Senders the gateway has never seen a key for still pass; `dmIdentity: "strict"` demands a verified key from everyone and locks out nodes on firmware before 2.5. HTTP transport carries no PKI provenance — use `tcp` or serial if verified identity matters to you.
 - Flood guard: 20 DMs / 10 min, 3 channel msgs / 10 min — a message is sent whole or refused whole, never partially aired.
 
 ## Verify it works
 
 1. `openclaw channels status --probe` → meshtastic ok.
-2. Self-test: DM the node's `!id` (shown by the wizard) from a second device or phone app. Expect the agent's reply within ~a minute — LoRa is slow, that is normal.
+2. Self-test: DM the node's `!id` (shown by the wizard) from a second device or phone app. Expect the agent's reply within ~a minute — LoRa is slow, that is normal. If nothing arrives, check the gateway log for a throttled `identity-gate` line first — a sender whose pinned key fails verification is a gate decision, not a radio fault.
 
 ## Node map on demand (once connected)
 
