@@ -285,6 +285,8 @@ Example group config:
 }
 ```
 
+**Group inheritance.** A single named account (at most one entry under `accounts`) with an explicit `groups: {}` inherits root `channels.meshtastic.groups` (the host's empty-map inheritance rule). Admission, `requireMention`, `allowFrom`, `enabled`, tool policy, `systemPrompt` and `skills` then all come from the root groups. With more than one named account nothing is inherited, and an account's own non-empty `groups` map always wins over root. These are the same semantics as openclaw-meshcore after #77.
+
 `groups.<id>.tools` is the group-wide baseline. `groups.<id>.toolsBySender` adds sender-scoped **denials only**; it cannot replace or widen that baseline with sender grants. Exact-group and wildcard-group (`groups.*`) sender maps both apply, and each map's `*` denials remain a floor alongside a matching node rule. Keys accept `*`, `id:!aabbccdd`, and `channel:meshtastic:!aabbccdd`; migrate bare `!aabbccdd` keys to the `id:` form. Move allowlists to `groups.<id>.tools.allow` or a dedicated agent. If sender id is unavailable, all configured sender denials apply conservatively.
 
 Meshtastic group sender numbers are claims under the shared-PSK trust model. Keep security-critical restrictions in group-wide `tools` or a dedicated least-privilege agent rather than relying only on a per-sender entry.
