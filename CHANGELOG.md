@@ -6,6 +6,12 @@ This fork (`fintlp/openclaw-meshtastic`) is the maintained line; upstream
 (`skrashevich/openclaw-meshtastic`) has been dormant since May 2026. Fixes
 are offered upstream as PRs. Date-based versioning: `2026.M.P`.
 
+## Unreleased
+
+Fixed
+
+- **Group admission, mention, requireMention, tool policy, systemPrompt and skills now resolve inherited root groups (#43; port of openclaw-meshcore #77 / PR #89).** Semantic change: an explicit `groups: {}` on a **single** named account now inherits root `channels.meshtastic.groups` (host `inheritEmptyKeys`), matching the host and meshcore. Previously every group lookup read only the account's own empty map and ignored root groups; 2026.11.2 had pinned that neutral behavior for tool policy. All lookups now share one host-aware resolver (`resolveMeshtasticEffectiveGroups` in policy.ts). Account keys are matched with `normalizeAccountId`, so multi-account setups, including non-canonical keys such as `"ops.team"` or `"Ops Team"`, never inherit. A lone literal `accounts.default` entry counts as one named account and therefore inherits. **Operator-visible, for the single-account `groups: {}` scenario only:** tool policy gets **stricter**, because the root group's `tools` / `toolsBySender` denials now apply. Admission gets **more permissive**, because allowlisted root channels become visible and their `requireMention`, `systemPrompt` and `skills` apply. To keep the old opt-out, configure the account with its own non-empty `groups` map or use a multi-account setup.
+
 ## 2026.11.2 - 2026-11-15
 
 Security
