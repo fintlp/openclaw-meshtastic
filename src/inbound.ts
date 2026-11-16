@@ -36,7 +36,7 @@ import {
 } from "./normalize.js";
 import {
   hasMeshtasticGroupToolPolicy,
-  resolveMeshtasticGroupMatch,
+  resolveMeshtasticEffectiveGroupMatch,
   resolveMeshtasticRequireMention,
 } from "./policy.js";
 import {
@@ -214,8 +214,12 @@ export async function handleMeshtasticInbound(params: {
     log: (line) => runtime.log?.(line),
   });
 
-  const groupMatch = resolveMeshtasticGroupMatch({
-    groups: account.config.groups,
+  // Host-aware group map (#43): a single named account's explicit groups:{}
+  // inherits root channels.meshtastic.groups. Admission, mention, tool-policy
+  // presence, systemPrompt and skills all read this one match.
+  const groupMatch = resolveMeshtasticEffectiveGroupMatch({
+    cfg: config,
+    account,
     target: message.target,
   });
 

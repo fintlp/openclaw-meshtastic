@@ -660,3 +660,208 @@ describe("MCP05 groupScope=main tool-policy guard", () => {
     expect(r.durability.deadLetter).not.toHaveBeenCalled();
   });
 });
+
+
+// Issue #43 (port of openclaw-meshcore #77): handler-level pins. A single named
+// account with explicit groups:{} is admitted / mention-gated / prompted through
+// inherited root groups; multi-account setups (incl. non-canonical keys) are not.
+describe("issue #43: inbound group lookups use the host-aware group map", () => {
+  beforeEach(() => {
+    readAllowFromStoreMock.mockReset().mockResolvedValue([]);
+    upsertPairingRequestMock.mockReset().mockResolvedValue({ code: "CODE", created: true });
+    matchesMentionPatternsMock.mockReset().mockReturnValue(false);
+    installMeshtasticRuntime();
+  });
+
+  afterEach(() => {
+    clearMeshtasticRuntime();
+  });
+
+  function cfgWith(
+    rootGroups: Record<string, MeshtasticGroupConfig>,
+    accounts: Record<string, Record<string, unknown>>,
+  ): CoreConfig {
+    return {
+      channels: {
+        meshtastic: {
+          host: "192.0.2.10",
+          dmPolicy: "pairing",
+          groupPolicy: "allowlist",
+          groupAllowFrom: ["!00000002"],
+          channels: [0],
+          groups: rootGroups,
+          accounts,
+        },
+      },
+    } as unknown as CoreConfig;
+  }
+
+  async function run(config: CoreConfig, accountId: string, text = "hello mesh") {
+    const { resolveMeshtasticAccount } = await import("./accounts.js");
+    const inboundRun = vi.fn(async () => ({ dispatched: true }));
+    installDispatchRuntime(inboundRun);
+    const runtime = createRuntimeEnv();
+    await handleMeshtasticInbound({
+      message: createMessage({ isGroup: true, target: "channel:0", text }),
+      account: resolveMeshtasticAccount({ cfg: config, accountId }),
+      config,
+      runtime,
+      sendReply: vi.fn(async () => undefined),
+    });
+    return { inboundRun, runtime };
+  }
+
+  const ROOT = {
+    "channel:0": { requireMention: false, systemPrompt: "Root prompt", skills: ["weather"] },
+  };
+
+  it("admits an inherited allowlisted channel and applies its systemPrompt and skills", async () => {
+    const r = await run(cfgWith(ROOT, { ops: { host: "192.0.2.11", groups: {} } }), "ops");
+    expect(r.inboundRun).toHaveBeenCalledTimes(1);
+    const turn = (
+      r.inboundRun.mock.calls[0] as unknown as [{ adapter: { resolveTurn: () => any } }]
+    )[0].adapter.resolveTurn();
+    expect(turn.ctxPayload.GroupSystemPrompt).toBe("Root prompt");
+    expect(turn.replyOptions.skillFilter).toEqual(["weather"]);
+  });
+
+  it("gates an inherited requireMention channel on the mention", async () => {
+    const config = cfgWith(
+      { "channel:0": { requireMention: true } },
+      { ops: { host: "192.0.2.11", groups: {} } },
+    );
+    const unmentioned = await run(config, "ops");
+    expect(unmentioned.inboundRun).not.toHaveBeenCalled();
+    expect(unmentioned.runtime.log).toHaveBeenCalledWith(
+      "meshtastic: drop channel channel:0 (missing-mention)",
+    );
+    matchesMentionPatternsMock.mockReturnValue(true);
+    const mentioned = await run(config, "ops", "hey agent");
+    expect(mentioned.inboundRun).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["ops", "ops.team", "Ops Team"])(
+    "does not inherit root groups for multi-account key %j",
+    async (key) => {
+      const r = await run(
+        cfgWith(ROOT, { [key]: { host: "192.0.2.11", groups: {} }, lab: { host: "192.0.2.12" } }),
+        key,
+      );
+      expect(r.inboundRun).not.toHaveBeenCalled();
+      expect(r.runtime.log).toHaveBeenCalledWith("meshtastic: drop channel channel:0 (not allowlisted)");
+    },
+  );
+
+  it("keeps explicit non-empty account groups authoritative over root groups", async () => {
+    const r = await run(
+      cfgWith(ROOT, { ops: { host: "192.0.2.11", groups: { "channel:1": { requireMention: false } } } }),
+      "ops",
+    );
+    expect(r.inboundRun).not.toHaveBeenCalled();
+    expect(r.runtime.log).toHaveBeenCalledWith("meshtastic: drop channel channel:0 (not allowlisted)");
+  });
+});
+
+
+// #43 review F1: inheritance is bidirectional for admission. Under
+// groupPolicy "open", inherited enabled:false / allowFrom / requireMention /
+// wildcard allowFrom NARROW admission for a single named account with
+// groups:{} (previously admitted -> now dropped). Under "allowlist", an
+// inherited allowFrom naming the sender ADMITS a previously dropped sender.
+describe("issue #43 review F1: inherited groups narrow or widen admission", () => {
+  beforeEach(() => {
+    readAllowFromStoreMock.mockReset().mockResolvedValue([]);
+    upsertPairingRequestMock.mockReset().mockResolvedValue({ code: "CODE", created: true });
+    matchesMentionPatternsMock.mockReset().mockReturnValue(false);
+    installMeshtasticRuntime();
+  });
+
+  afterEach(() => {
+    clearMeshtasticRuntime();
+  });
+
+  const OTHER = "!0000beef";
+
+  function singleAccountCfg(
+    groupPolicy: "open" | "allowlist",
+    rootGroups: Record<string, MeshtasticGroupConfig>,
+  ): CoreConfig {
+    return {
+      channels: {
+        meshtastic: {
+          host: "192.0.2.10",
+          dmPolicy: "pairing",
+          groupPolicy,
+          channels: [0],
+          groups: rootGroups,
+          accounts: { ops: { host: "192.0.2.11", groups: {} } },
+        },
+      },
+    } as unknown as CoreConfig;
+  }
+
+  async function run(config: CoreConfig) {
+    const { resolveMeshtasticAccount } = await import("./accounts.js");
+    const inboundRun = vi.fn(async () => ({ dispatched: true }));
+    installDispatchRuntime(inboundRun);
+    const runtime = createRuntimeEnv();
+    await handleMeshtasticInbound({
+      message: createMessage({ isGroup: true, target: "channel:0", text: "hello mesh" }),
+      account: resolveMeshtasticAccount({ cfg: config, accountId: "ops" }),
+      config,
+      runtime,
+      sendReply: vi.fn(async () => undefined),
+    });
+    return { inboundRun, runtime };
+  }
+
+  it("open control: an unrestricted inherited channel still admits", async () => {
+    const r = await run(singleAccountCfg("open", { "channel:0": { requireMention: false } }));
+    expect(r.inboundRun).toHaveBeenCalledTimes(1);
+  });
+
+  it("open + inherited enabled:false narrows: dropped as disabled", async () => {
+    const r = await run(
+      singleAccountCfg("open", { "channel:0": { requireMention: false, enabled: false } }),
+    );
+    expect(r.inboundRun).not.toHaveBeenCalled();
+    expect(r.runtime.log).toHaveBeenCalledWith("meshtastic: drop channel channel:0 (disabled)");
+  });
+
+  it("open + inherited allowFrom excluding the sender narrows: dropped by sender policy", async () => {
+    const r = await run(
+      singleAccountCfg("open", { "channel:0": { requireMention: false, allowFrom: [OTHER] } }),
+    );
+    expect(r.inboundRun).not.toHaveBeenCalled();
+    expect(r.runtime.log).toHaveBeenCalledWith(
+      "meshtastic: drop group sender !00000002 (policy=open)",
+    );
+  });
+
+  it("open + inherited requireMention narrows: dropped as missing-mention", async () => {
+    const r = await run(singleAccountCfg("open", { "channel:0": { requireMention: true } }));
+    expect(r.inboundRun).not.toHaveBeenCalled();
+    expect(r.runtime.log).toHaveBeenCalledWith(
+      "meshtastic: drop channel channel:0 (missing-mention)",
+    );
+  });
+
+  it("open + inherited wildcard allowFrom flips open to allowlist: dropped by sender policy", async () => {
+    const r = await run(
+      singleAccountCfg("open", { "*": { requireMention: false, allowFrom: [OTHER] } }),
+    );
+    expect(r.inboundRun).not.toHaveBeenCalled();
+    expect(r.runtime.log).toHaveBeenCalledWith(
+      "meshtastic: drop group sender !00000002 (policy=open)",
+    );
+  });
+
+  it("allowlist + inherited allowFrom naming the sender widens: admitted", async () => {
+    const r = await run(
+      singleAccountCfg("allowlist", {
+        "channel:0": { requireMention: false, allowFrom: ["!00000002"] },
+      }),
+    );
+    expect(r.inboundRun).toHaveBeenCalledTimes(1);
+  });
+});

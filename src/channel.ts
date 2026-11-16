@@ -39,7 +39,8 @@ import {
 } from "./normalize.js";
 import { meshtasticOutboundBaseAdapter } from "./outbound-base.js";
 import {
-  resolveMeshtasticGroupMatch,
+  resolveMeshtasticEffectiveGroupMatch,
+  resolveMeshtasticEffectiveGroups,
   resolveMeshtasticRequireMention,
   resolveMeshtasticSenderToolDenials,
 } from "./policy.js";
@@ -171,8 +172,9 @@ export const meshtasticPlugin: ChannelPlugin<ResolvedMeshtasticAccount, Meshtast
           if (!groupId) {
             return false;
           }
-          const match = resolveMeshtasticGroupMatch({
-            groups: account.config.groups,
+          const match = resolveMeshtasticEffectiveGroupMatch({
+            cfg: cfg as CoreConfig,
+            account,
             target: groupId,
           });
           return resolveMeshtasticRequireMention({
@@ -186,7 +188,7 @@ export const meshtasticPlugin: ChannelPlugin<ResolvedMeshtasticAccount, Meshtast
           }
           const account = resolveMeshtasticAccount({ cfg: cfg as CoreConfig, accountId });
           return resolveMeshtasticSenderToolDenials({
-            groups: account.config.groups,
+            groups: resolveMeshtasticEffectiveGroups({ cfg: cfg as CoreConfig, account }),
             target: groupId,
             senderId,
             senderPolicyMode,

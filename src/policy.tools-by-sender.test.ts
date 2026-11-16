@@ -234,7 +234,12 @@ describe("registered Meshtastic group tool-policy adapter", () => {
     ]);
   });
 
-  it("explicit named-account groups={} stays neutral instead of falling back to root groups", () => {
+  // Decision 2026-11-16 (owner, issue #43): aligned with openclaw-meshcore
+  // #77/#89. An explicit groups:{} on a SINGLE named account inherits root
+  // groups via the host inheritEmptyKeys rule, so the root group's tool deny
+  // list now applies. c0bd8a4 pinned neutrality before the host semantics were
+  // adopted.
+  it("explicit groups={} on a single named account inherits root group tool denials (host inheritEmptyKeys)", () => {
     const cfg = {
       channels: {
         meshtastic: {
@@ -250,7 +255,9 @@ describe("registered Meshtastic group tool-policy adapter", () => {
       },
     } as CoreConfig;
 
-    expect(resolveAdapter({ cfg, accountId: "work" })).toEqual({ deny: [] });
+    expect(resolveAdapter({ cfg, accountId: "work" })).toEqual({
+      deny: ["root-base", "root-floor"],
+    });
   });
 
   it("named-account groups replace root groups and retain their own exact/wildcard overlays", () => {
