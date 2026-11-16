@@ -761,3 +761,107 @@ describe("issue #43: inbound group lookups use the host-aware group map", () => 
     expect(r.runtime.log).toHaveBeenCalledWith("meshtastic: drop channel channel:0 (not allowlisted)");
   });
 });
+
+
+// #43 review F1: inheritance is bidirectional for admission. Under
+// groupPolicy "open", inherited enabled:false / allowFrom / requireMention /
+// wildcard allowFrom NARROW admission for a single named account with
+// groups:{} (previously admitted -> now dropped). Under "allowlist", an
+// inherited allowFrom naming the sender ADMITS a previously dropped sender.
+describe("issue #43 review F1: inherited groups narrow or widen admission", () => {
+  beforeEach(() => {
+    readAllowFromStoreMock.mockReset().mockResolvedValue([]);
+    upsertPairingRequestMock.mockReset().mockResolvedValue({ code: "CODE", created: true });
+    matchesMentionPatternsMock.mockReset().mockReturnValue(false);
+    installMeshtasticRuntime();
+  });
+
+  afterEach(() => {
+    clearMeshtasticRuntime();
+  });
+
+  const OTHER = "!0000beef";
+
+  function singleAccountCfg(
+    groupPolicy: "open" | "allowlist",
+    rootGroups: Record<string, MeshtasticGroupConfig>,
+  ): CoreConfig {
+    return {
+      channels: {
+        meshtastic: {
+          host: "192.0.2.10",
+          dmPolicy: "pairing",
+          groupPolicy,
+          channels: [0],
+          groups: rootGroups,
+          accounts: { ops: { host: "192.0.2.11", groups: {} } },
+        },
+      },
+    } as unknown as CoreConfig;
+  }
+
+  async function run(config: CoreConfig) {
+    const { resolveMeshtasticAccount } = await import("./accounts.js");
+    const inboundRun = vi.fn(async () => ({ dispatched: true }));
+    installDispatchRuntime(inboundRun);
+    const runtime = createRuntimeEnv();
+    await handleMeshtasticInbound({
+      message: createMessage({ isGroup: true, target: "channel:0", text: "hello mesh" }),
+      account: resolveMeshtasticAccount({ cfg: config, accountId: "ops" }),
+      config,
+      runtime,
+      sendReply: vi.fn(async () => undefined),
+    });
+    return { inboundRun, runtime };
+  }
+
+  it("open control: an unrestricted inherited channel still admits", async () => {
+    const r = await run(singleAccountCfg("open", { "channel:0": { requireMention: false } }));
+    expect(r.inboundRun).toHaveBeenCalledTimes(1);
+  });
+
+  it("open + inherited enabled:false narrows: dropped as disabled", async () => {
+    const r = await run(
+      singleAccountCfg("open", { "channel:0": { requireMention: false, enabled: false } }),
+    );
+    expect(r.inboundRun).not.toHaveBeenCalled();
+    expect(r.runtime.log).toHaveBeenCalledWith("meshtastic: drop channel channel:0 (disabled)");
+  });
+
+  it("open + inherited allowFrom excluding the sender narrows: dropped by sender policy", async () => {
+    const r = await run(
+      singleAccountCfg("open", { "channel:0": { requireMention: false, allowFrom: [OTHER] } }),
+    );
+    expect(r.inboundRun).not.toHaveBeenCalled();
+    expect(r.runtime.log).toHaveBeenCalledWith(
+      "meshtastic: drop group sender !00000002 (policy=open)",
+    );
+  });
+
+  it("open + inherited requireMention narrows: dropped as missing-mention", async () => {
+    const r = await run(singleAccountCfg("open", { "channel:0": { requireMention: true } }));
+    expect(r.inboundRun).not.toHaveBeenCalled();
+    expect(r.runtime.log).toHaveBeenCalledWith(
+      "meshtastic: drop channel channel:0 (missing-mention)",
+    );
+  });
+
+  it("open + inherited wildcard allowFrom flips open to allowlist: dropped by sender policy", async () => {
+    const r = await run(
+      singleAccountCfg("open", { "*": { requireMention: false, allowFrom: [OTHER] } }),
+    );
+    expect(r.inboundRun).not.toHaveBeenCalled();
+    expect(r.runtime.log).toHaveBeenCalledWith(
+      "meshtastic: drop group sender !00000002 (policy=open)",
+    );
+  });
+
+  it("allowlist + inherited allowFrom naming the sender widens: admitted", async () => {
+    const r = await run(
+      singleAccountCfg("allowlist", {
+        "channel:0": { requireMention: false, allowFrom: ["!00000002"] },
+      }),
+    );
+    expect(r.inboundRun).toHaveBeenCalledTimes(1);
+  });
+});
