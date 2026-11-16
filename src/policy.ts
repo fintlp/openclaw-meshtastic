@@ -1,6 +1,9 @@
 import { resolveToolsBySender } from "openclaw/plugin-sdk/channel-policy";
 import type { GroupToolPolicyConfig } from "openclaw/plugin-sdk/config-contracts";
-import type { MeshtasticGroupConfig } from "./types.js";
+import { normalizeAccountId } from "openclaw/plugin-sdk/account-id";
+import { resolveMergedAccountConfig } from "openclaw/plugin-sdk/account-resolution";
+import type { ResolvedMeshtasticAccount } from "./accounts.js";
+import type { CoreConfig, MeshtasticAccountConfig, MeshtasticGroupConfig } from "./types.js";
 
 export type MeshtasticGroupMatch = {
   allowed: boolean;
@@ -52,6 +55,58 @@ export function resolveMeshtasticGroupMatch(params: {
     allowed: false,
     hasConfiguredGroups,
   };
+}
+
+/**
+ * The group map an account effectively uses, applying the host's empty-map
+ * inheritance: a single named account with an explicit `groups: {}` inherits
+ * root `channels.meshtastic.groups` (host `inheritEmptyKeys`). Shared by every
+ * group lookup: admission and mention, requireMention, tool policy,
+ * systemPrompt and skills (#43; port of openclaw-meshcore #77 / PR #89).
+ *
+ * The captured account is authoritative. The host merge only fills an empty
+ * captured map; with more than one configured account nothing is inherited.
+ * Account keys are matched with normalizeAccountId (same as accounts.ts):
+ * without it the SDK falls back to lowercase-only key lookup, misses
+ * non-canonical keys ("ops.team", "Ops Team") and returns the bare root
+ * config, root groups included.
+ */
+export function resolveMeshtasticEffectiveGroups(params: {
+  cfg: CoreConfig;
+  account: ResolvedMeshtasticAccount;
+}): Record<string, MeshtasticGroupConfig> | undefined {
+  const { account } = params;
+  const ownGroups = account.config.groups;
+  if (Object.keys(ownGroups ?? {}).length > 0) {
+    return ownGroups;
+  }
+  const channelConfig = params.cfg.channels?.meshtastic;
+  if (!channelConfig) {
+    return ownGroups;
+  }
+  return resolveMergedAccountConfig<MeshtasticAccountConfig>({
+    channelConfig: channelConfig as MeshtasticAccountConfig,
+    channelId: "meshtastic",
+    accounts: channelConfig.accounts as
+      | Record<string, Partial<MeshtasticAccountConfig>>
+      | undefined,
+    accountId: normalizeAccountId(account.accountId),
+    normalizeAccountId,
+    inheritEmptyKeys:
+      Object.keys(channelConfig.accounts ?? {}).length > 1 ? {} : { groups: "object" },
+  }).groups;
+}
+
+/** resolveMeshtasticGroupMatch over the host-aware effective group map. */
+export function resolveMeshtasticEffectiveGroupMatch(params: {
+  cfg: CoreConfig;
+  account: ResolvedMeshtasticAccount;
+  target: string;
+}): MeshtasticGroupMatch {
+  return resolveMeshtasticGroupMatch({
+    groups: resolveMeshtasticEffectiveGroups({ cfg: params.cfg, account: params.account }),
+    target: params.target,
+  });
 }
 
 export function resolveMeshtasticRequireMention(params: {
