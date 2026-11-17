@@ -1,6 +1,6 @@
 import type { ChannelSetupAdapter, ChannelSetupInput } from "openclaw/plugin-sdk/channel-setup";
 import type { DmPolicy } from "openclaw/plugin-sdk/config-contracts";
-import { normalizeAccountId } from "openclaw/plugin-sdk/routing";
+import { DEFAULT_ACCOUNT_ID, normalizeAccountId } from "openclaw/plugin-sdk/routing";
 import {
   applyAccountNameToChannelSection,
   createSetupInputPresenceValidator,
@@ -8,13 +8,15 @@ import {
   createTopLevelChannelDmPolicySetter,
   patchScopedAccountConfig,
 } from "openclaw/plugin-sdk/setup";
+import { resolveMeshtasticAccount, resolveMeshtasticAccountKey } from "./accounts.js";
+import { resolveMeshtasticEffectiveGroups } from "./policy.js";
 import { splitHostPort } from "./setup-detect.js";
 import {
   DEFAULT_SERIAL_BAUD,
   defaultPortForTransport,
   normalizeMeshtasticTransport,
 } from "./transport.js";
-import type { CoreConfig, MeshtasticAccountConfig } from "./types.js";
+import type { CoreConfig, MeshtasticAccountConfig, MeshtasticGroupConfig } from "./types.js";
 
 const channel = "meshtastic" as const;
 const setMeshtasticTopLevelDmPolicy = createTopLevelChannelDmPolicySetter({ channel });
@@ -86,6 +88,28 @@ export function updateMeshtasticAccountConfig(
   accountId: string,
   patch: Partial<MeshtasticAccountConfig>,
 ): CoreConfig {
+  const normalizedId = normalizeAccountId(accountId);
+  // The SDK patch helper writes accounts[<normalized id>] and does not find an
+  // account stored under a non-canonical key ("Ops Team"): it would add a
+  // second "ops-team" section next to it. Patch the stored section in place.
+  const storedKey =
+    normalizedId === DEFAULT_ACCOUNT_ID ? undefined : resolveMeshtasticAccountKey(cfg, normalizedId);
+  const section = cfg.channels?.meshtastic;
+  if (storedKey !== undefined && storedKey !== normalizedId && section) {
+    return {
+      ...cfg,
+      channels: {
+        ...cfg.channels,
+        meshtastic: {
+          ...section,
+          accounts: {
+            ...section.accounts,
+            [storedKey]: { ...section.accounts?.[storedKey], ...patch },
+          },
+        },
+      },
+    } as CoreConfig;
+  }
   return patchScopedAccountConfig({
     cfg,
     channelKey: channel,
@@ -104,6 +128,56 @@ export function setMeshtasticAllowFrom(cfg: CoreConfig, allowFrom: string[]): Co
   return setMeshtasticTopLevelAllowFrom(cfg, allowFrom) as CoreConfig;
 }
 
+/**
+ * Policy-only group step. Never touches `groups`: the host wizard calls
+ * setPolicy("allowlist") and then applyAllowlist(entries), so the policy step
+ * must not clear the map before the entries are merged (#49).
+ */
+export function setMeshtasticGroupPolicy(
+  cfg: CoreConfig,
+  accountId: string,
+  policy: "open" | "allowlist" | "disabled",
+): CoreConfig {
+  return updateMeshtasticAccountConfig(cfg, accountId, { enabled: true, groupPolicy: policy });
+}
+
+function sameKeySet(a: readonly string[], b: readonly string[]): boolean {
+  const left = new Set(a);
+  const right = new Set(b);
+  return left.size === right.size && [...left].every((key) => right.has(key));
+}
+
+/**
+ * Merge entered group entries into the existing group objects. Retained keys
+ * keep their object (and position) exactly; new keys get {}; removed keys are
+ * dropped.
+ */
+function mergeMeshtasticGroupEntries(
+  base: Record<string, MeshtasticGroupConfig>,
+  entries: readonly string[],
+  normalizeGroupEntry: (raw: string) => string | null,
+): Record<string, MeshtasticGroupConfig> {
+  const wanted = new Set(entries);
+  const merged: Record<string, MeshtasticGroupConfig> = {};
+  const seen = new Set<string>();
+  for (const [key, value] of Object.entries(base)) {
+    // The prefill shows stored keys; entries come back normalized.
+    const normalizedKey = normalizeGroupEntry(key) ?? key;
+    if (wanted.has(key) || wanted.has(normalizedKey)) {
+      merged[key] = value;
+      seen.add(key);
+      seen.add(normalizedKey);
+    }
+  }
+  for (const entry of entries) {
+    if (!seen.has(entry)) {
+      merged[entry] = {};
+      seen.add(entry);
+    }
+  }
+  return merged;
+}
+
 export function setMeshtasticGroupAccess(
   cfg: CoreConfig,
   accountId: string,
@@ -112,16 +186,40 @@ export function setMeshtasticGroupAccess(
   normalizeGroupEntry: (raw: string) => string | null,
 ): CoreConfig {
   if (policy !== "allowlist") {
-    return updateMeshtasticAccountConfig(cfg, accountId, { enabled: true, groupPolicy: policy });
+    return setMeshtasticGroupPolicy(cfg, accountId, policy);
   }
   const normalizedEntries = [
-    ...new Set(entries.map((entry) => normalizeGroupEntry(entry)).filter(Boolean)),
+    ...new Set(
+      entries.map((entry) => normalizeGroupEntry(entry)).filter((entry): entry is string => Boolean(entry)),
+    ),
   ];
-  const groups = Object.fromEntries(normalizedEntries.map((entry) => [entry, {}]));
+  const account = resolveMeshtasticAccount({ cfg, accountId });
+  const storedKey = resolveMeshtasticAccountKey(cfg, accountId);
+  const ownGroups =
+    normalizeAccountId(accountId) === DEFAULT_ACCOUNT_ID
+      ? cfg.channels?.meshtastic?.groups
+      : storedKey === undefined
+        ? undefined
+        : cfg.channels?.meshtastic?.accounts?.[storedKey]?.groups;
+  const effectiveKeys = Object.keys(resolveMeshtasticEffectiveGroups({ cfg, account }) ?? {}).map(
+    (key) => normalizeGroupEntry(key) ?? key,
+  );
+  // Something is actually inherited (non-empty effective map), the account has
+  // no own groups, and the operator kept exactly that set: do not freeze the
+  // inherited root groups into the account (later root edits must keep
+  // applying). Policy/enabled are still applied. With nothing inherited an
+  // empty list is a deliberate "allow nothing" and still writes groups: {}.
+  if (
+    effectiveKeys.length > 0 &&
+    Object.keys(ownGroups ?? {}).length === 0 &&
+    sameKeySet(normalizedEntries, effectiveKeys)
+  ) {
+    return updateMeshtasticAccountConfig(cfg, accountId, { enabled: true, groupPolicy: "allowlist" });
+  }
   return updateMeshtasticAccountConfig(cfg, accountId, {
     enabled: true,
     groupPolicy: "allowlist",
-    groups,
+    groups: mergeMeshtasticGroupEntries(account.config.groups ?? {}, normalizedEntries, normalizeGroupEntry),
   });
 }
 
