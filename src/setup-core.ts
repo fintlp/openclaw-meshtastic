@@ -129,7 +129,7 @@ export function setMeshtasticAllowFrom(cfg: CoreConfig, allowFrom: string[]): Co
 }
 
 /**
- * Policy-only group step. Never touches \`groups\`: the host wizard calls
+ * Policy-only group step. Never touches `groups`: the host wizard calls
  * setPolicy("allowlist") and then applyAllowlist(entries), so the policy step
  * must not clear the map before the entries are merged (#49).
  */
@@ -204,10 +204,16 @@ export function setMeshtasticGroupAccess(
   const effectiveKeys = Object.keys(resolveMeshtasticEffectiveGroups({ cfg, account }) ?? {}).map(
     (key) => normalizeGroupEntry(key) ?? key,
   );
-  // No own groups and the operator kept what is effectively in force: do not
-  // freeze inherited root groups into the account (later root edits must keep
-  // applying). Policy/enabled are still applied.
-  if (Object.keys(ownGroups ?? {}).length === 0 && sameKeySet(normalizedEntries, effectiveKeys)) {
+  // Something is actually inherited (non-empty effective map), the account has
+  // no own groups, and the operator kept exactly that set: do not freeze the
+  // inherited root groups into the account (later root edits must keep
+  // applying). Policy/enabled are still applied. With nothing inherited an
+  // empty list is a deliberate "allow nothing" and still writes groups: {}.
+  if (
+    effectiveKeys.length > 0 &&
+    Object.keys(ownGroups ?? {}).length === 0 &&
+    sameKeySet(normalizedEntries, effectiveKeys)
+  ) {
     return updateMeshtasticAccountConfig(cfg, accountId, { enabled: true, groupPolicy: "allowlist" });
   }
   return updateMeshtasticAccountConfig(cfg, accountId, {
