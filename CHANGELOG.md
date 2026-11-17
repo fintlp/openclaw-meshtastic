@@ -6,6 +6,12 @@ This fork (`fintlp/openclaw-meshtastic`) is the maintained line; upstream
 (`skrashevich/openclaw-meshtastic`) has been dormant since May 2026. Fixes
 are offered upstream as PRs. Date-based versioning: `2026.M.P`.
 
+## Unreleased
+
+Fixed
+
+- **Setup wizard no longer wipes per-group settings or freezes inherited root groups (#49).** The group-access step used to rewrite the account's whole `groups` map as `{ <entry>: {} }` even when the operator accepted the prefilled allowlist unchanged: `requireMention`, `tools`, `toolsBySender`, `allowFrom`, `systemPrompt` and `skills` of every group were lost, and an account without its own `groups` copied the root groups into its own config so later root edits stopped applying. The intermediate `setPolicy("allowlist")` call the host makes before applying the entries also cleared the map with `{}`. Now the policy step only sets `groupPolicy`/`enabled`; entries are merged into the existing group objects (retained keys keep their config exactly, new keys get `{}`, removed keys are dropped); and when the account has no own groups and the entries equal what is effectively inherited, no explicit `groups` map is written. Also fixed: for an account stored under a non-canonical key (e.g. `"Ops Team"`) the setup writers added a second `ops-team` account section next to it instead of patching the stored one, and the default-mention step silently did nothing; both now use the same account-key lookup as the account reader. **Operator-visible:** when you deliberately edit an inherited list in the wizard, the result is an explicit account-level override (retained keys carry their current settings, new keys start empty). Port of openclaw-meshcore #94.
+
 ## 2026.11.3 - 2026-11-17
 
 Fixed
