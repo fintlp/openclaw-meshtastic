@@ -47,7 +47,7 @@ import {
 import { probeMeshtastic } from "./probe.js";
 import { resolveMeshtasticOutboundSessionRoute } from "./session-route.js";
 import { meshtasticSetupAdapter, meshtasticSetupWizard } from "./setup-surface.js";
-import type { CoreConfig, MeshtasticProbe } from "./types.js";
+import type { CoreConfig, MeshtasticGroupConfig, MeshtasticProbe } from "./types.js";
 
 const meta = {
   id: "meshtastic",
@@ -70,25 +70,47 @@ async function loadMeshtasticChannelRuntime(): Promise<MeshtasticChannelRuntimeM
   return await meshtasticChannelRuntimePromise;
 }
 
+/**
+ * Directory listers show the groups the account effectively uses (the same
+ * host-aware map admission, mention and tool policy resolve against, #46): a
+ * single named account with groups:{} inherits root groups. Display only;
+ * nothing here decides admission or policy.
+ */
+type MeshtasticDirectoryAccount = {
+  account: ResolvedMeshtasticAccount;
+  groups: Record<string, MeshtasticGroupConfig>;
+};
+
+function resolveMeshtasticDirectoryAccount(
+  cfg: unknown,
+  accountId?: string | null,
+): MeshtasticDirectoryAccount {
+  const account = resolveMeshtasticAccount({ cfg: cfg as CoreConfig, accountId });
+  return {
+    account,
+    groups: resolveMeshtasticEffectiveGroups({ cfg: cfg as CoreConfig, account }) ?? {},
+  };
+}
+
 const listMeshtasticDirectoryPeersFromConfig =
-  createResolvedDirectoryEntriesLister<ResolvedMeshtasticAccount>({
+  createResolvedDirectoryEntriesLister<MeshtasticDirectoryAccount>({
     kind: "user",
-    resolveAccount: adaptScopedAccountAccessor(resolveMeshtasticAccount),
-    resolveSources: (account) => [
+    resolveAccount: resolveMeshtasticDirectoryAccount,
+    resolveSources: ({ account, groups }) => [
       account.config.allowFrom ?? [],
       account.config.groupAllowFrom ?? [],
-      ...Object.values(account.config.groups ?? {}).map((group) => group.allowFrom ?? []),
+      ...Object.values(groups).map((group) => group.allowFrom ?? []),
     ],
     normalizeId: (entry) => normalizeMeshtasticAllowEntry(entry) || null,
   });
 
 const listMeshtasticDirectoryGroupsFromConfig =
-  createResolvedDirectoryEntriesLister<ResolvedMeshtasticAccount>({
+  createResolvedDirectoryEntriesLister<MeshtasticDirectoryAccount>({
     kind: "group",
-    resolveAccount: adaptScopedAccountAccessor(resolveMeshtasticAccount),
-    resolveSources: (account) => [
+    resolveAccount: resolveMeshtasticDirectoryAccount,
+    resolveSources: ({ account, groups }) => [
       ...(account.config.channels ?? []).map((channelIndex) => `channel:${channelIndex}`),
-      Object.keys(account.config.groups ?? {}),
+      Object.keys(groups),
     ],
     normalizeId: (entry) => {
       const normalized = normalizeMeshtasticMessagingTarget(String(entry));
