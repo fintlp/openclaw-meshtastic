@@ -11,7 +11,11 @@ import {
   splitSetupEntries,
 } from "openclaw/plugin-sdk/setup";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
-import { resolveDefaultMeshtasticAccountId, resolveMeshtasticAccount } from "./accounts.js";
+import {
+  resolveDefaultMeshtasticAccountId,
+  resolveMeshtasticAccount,
+  resolveMeshtasticAccountKey,
+} from "./accounts.js";
 import { probeMeshtastic } from "./probe.js";
 import {
   normalizeMeshtasticAllowEntry,
@@ -25,6 +29,7 @@ import {
   parseBaudRate,
   parsePort,
   setMeshtasticGroupAccess,
+  setMeshtasticGroupPolicy,
   updateMeshtasticAccountConfig,
 } from "./setup-core.js";
 import {
@@ -73,13 +78,14 @@ function readAccountSection(
   if (accountId === DEFAULT_ACCOUNT_ID) {
     return section;
   }
-  return section.accounts?.[accountId];
+  const storedKey = resolveMeshtasticAccountKey(cfg, accountId);
+  return storedKey === undefined ? undefined : section.accounts?.[storedKey];
 }
 
 /** Mesh group entries created during setup default to mention-gated: the
  * agent may listen, but only speaks (when groupTransmit is opted into) when
  * addressed. Existing explicit values are never clobbered. */
-function withDefaultRequireMention(cfg: CoreConfig, accountId: string): CoreConfig {
+export function withDefaultRequireMention(cfg: CoreConfig, accountId: string): CoreConfig {
   const section = readAccountSection(cfg, accountId);
   const groups = section?.groups;
   if (!groups || typeof groups !== "object") {
@@ -440,8 +446,10 @@ export const meshtasticSetupWizard: ChannelSetupWizard = {
     currentEntries: ({ cfg, accountId }) =>
       Object.keys(resolveMeshtasticAccount({ cfg: cfg as CoreConfig, accountId }).config.groups ?? {}),
     updatePrompt: () => true,
+    // Policy only: the host calls setPolicy("allowlist") before applyAllowlist,
+    // so this step must never touch the groups map (#49).
     setPolicy: ({ cfg, accountId, policy }) =>
-      setMeshtasticGroupAccess(cfg as CoreConfig, accountId, policy, [], normalizeGroupEntry),
+      setMeshtasticGroupPolicy(cfg as CoreConfig, accountId, policy),
     resolveAllowlist: async ({ entries }) => entries,
     applyAllowlist: ({ cfg, accountId, resolved }) =>
       setMeshtasticGroupAccess(
