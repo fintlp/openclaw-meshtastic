@@ -1,6 +1,6 @@
 {
   "name": "@fintlp/openclaw-meshtastic",
-  "version": "2026.11.2",
+  "version": "2026.11.3",
   "description": "An AI agent on your Meshtastic mesh — OpenClaw channel plugin over the official protobuf stack (TCP, HTTP, serial), fully local, no MQTT",
   "repository": {
     "type": "git",
@@ -57,13 +57,13 @@
       "selectionLabel": "Meshtastic (HTTP / TCP / Serial)",
       "docsPath": "/channels/meshtastic",
       "docsLabel": "meshtastic",
-    "configuredState": {
-      "env": {
-        "allOf": [
-          "MESHTASTIC_HOST"
-        ]
-      }
-    },
+      "configuredState": {
+        "env": {
+          "allOf": [
+            "MESHTASTIC_HOST"
+          ]
+        }
+      },
       "blurb": "LoRa mesh messaging via Meshtastic protobuf (HTTP, TCP, or USB serial).",
       "order": 68,
       "quickstartAllowFrom": true,
