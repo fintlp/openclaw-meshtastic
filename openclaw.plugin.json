@@ -325,6 +325,54 @@
             },
             "additionalProperties": false
           },
+          "sessionSendRateLimit": {
+            "default": {
+              "enabled": true,
+              "maxSends": 8,
+              "maxBytes": 768,
+              "windowMs": 600000,
+              "groupMaxSends": 1
+            },
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "default": true,
+                "type": "boolean"
+              },
+              "maxSends": {
+                "default": 8,
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "maxBytes": {
+                "default": 768,
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "windowMs": {
+                "default": 600000,
+                "type": "integer",
+                "minimum": 1000,
+                "maximum": 9007199254740991
+              },
+              "groupMaxSends": {
+                "default": 1,
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "enabled",
+              "maxSends",
+              "maxBytes",
+              "windowMs",
+              "groupMaxSends"
+            ],
+            "additionalProperties": false
+          },
           "logInboundMessageContent": {
             "type": "boolean"
           },
@@ -729,6 +777,54 @@
                   },
                   "additionalProperties": false
                 },
+                "sessionSendRateLimit": {
+                  "default": {
+                    "enabled": true,
+                    "maxSends": 8,
+                    "maxBytes": 768,
+                    "windowMs": 600000,
+                    "groupMaxSends": 1
+                  },
+                  "type": "object",
+                  "properties": {
+                    "enabled": {
+                      "default": true,
+                      "type": "boolean"
+                    },
+                    "maxSends": {
+                      "default": 8,
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    },
+                    "maxBytes": {
+                      "default": 768,
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    },
+                    "windowMs": {
+                      "default": 600000,
+                      "type": "integer",
+                      "minimum": 1000,
+                      "maximum": 9007199254740991
+                    },
+                    "groupMaxSends": {
+                      "default": 1,
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "enabled",
+                    "maxSends",
+                    "maxBytes",
+                    "windowMs",
+                    "groupMaxSends"
+                  ],
+                  "additionalProperties": false
+                },
                 "logInboundMessageContent": {
                   "type": "boolean"
                 },
@@ -825,6 +921,7 @@
                 "dmPolicy",
                 "groupPolicy",
                 "groupTransmit",
+                "sessionSendRateLimit",
                 "dmIdentity",
                 "commandIdentity",
                 "pairingIdentity",
@@ -842,6 +939,7 @@
           "dmPolicy",
           "groupPolicy",
           "groupTransmit",
+          "sessionSendRateLimit",
           "dmIdentity",
           "commandIdentity",
           "pairingIdentity",
@@ -901,6 +999,10 @@
         "sendRateLimit": {
           "label": "Meshtastic Send Rate Limit",
           "help": "Flood guard: caps outbound airtime packets per rolling window (default 20 per 10 minutes for DMs, 3 for group channels). Refuses with a retry hint when tripped. Set enabled:false to disable."
+        },
+        "sessionSendRateLimit": {
+          "label": "Per-Session Send Rate Limit",
+          "help": "Pre-delivery flood guard per trusted canonical session (defaults: 8 estimated DM packets and 768 UTF-8 text bytes per 10 minutes; 1 group packet). Refuses the whole payload with a retry hint; no queue. enabled:false affects only this layer, never the account Send Rate Limit."
         },
         "durability": {
           "label": "Inbound Durability",

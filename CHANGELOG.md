@@ -6,6 +6,12 @@ This fork (`fintlp/openclaw-meshtastic`) is the maintained line; upstream
 (`skrashevich/openclaw-meshtastic`) has been dormant since May 2026. Fixes
 are offered upstream as PRs. Date-based versioning: `2026.M.P`.
 
+## Unreleased
+
+Security
+
+- **Added a per-session outbound flood guard (#5).** `sessionSendRateLimit` now cancels runaway payloads at the host `message_sending` boundary before durable/provider delivery or radio I/O. Defaults per trusted channel+account+canonical session are 8 estimated DM radio packets (using the real UTF-8 chunker/config) and 768 UTF-8 payload bytes per rolling 10 minutes; opted-in group sends default to 1 packet per session so one session cannot consume all three account group packets. Independent sessions/accounts have independent buckets, while the existing account DM/group budgets remain the unchanged aggregate backstop. Refusal includes a retry delay and never queues. Missing-session sends remain account-only. **Upgrading?** normal session replies are now capped by default; set `channels.meshtastic.sessionSendRateLimit.enabled=false` to opt out of only this layer, or tune `maxSends`, `maxBytes`, `groupMaxSends`, and `windowMs` deliberately. Account limits and all group admission/transmission policy remain independent.
+
 ## 2026.11.4 - 2026-11-18
 
 Fixed

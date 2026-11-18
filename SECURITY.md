@@ -129,6 +129,7 @@ rather than instructional:
 - **Cautious access defaults:** `dmPolicy: "pairing"` (every new contact needs
   your approval) and `groupPolicy: "disabled"` (channel traffic never triggers
   the agent until you opt in).
+- **Per-session outbound flood containment:** `sessionSendRateLimit` runs at the cancellation-capable `message_sending` boundary before durable/provider delivery and the radio adapter. Defaults are 8 estimated DM packets plus 768 UTF-8 payload bytes per trusted channel+account+canonical session per 10 minutes, and 1 group packet per session. Packet estimates share the production UTF-8 chunker/config. Accepted payloads are charged synchronously; excess returns `cancel: true` with retry context and is never queued. Missing session keys remain account-only, and disabling this layer never disables the independent account DM/group budgets or the `groupTransmit`/reserved-broadcast refusals. Session state is in memory and resets on restart.
 - **Metadata-only logging by default:** inbound message bodies are not logged
   unless `logInboundMessageContent: true` is set deliberately.
 

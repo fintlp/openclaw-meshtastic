@@ -68,6 +68,8 @@ Why so strict? LoRa airtime is a shared commons. An agent that chats on a public
 
 A second structural rail caps total output: the **flood guard** budgets outbound airtime packets per rolling window — 20 per 10 minutes for DMs, and a stricter 3 per 10 minutes for group channels — and refuses with a retry hint when the budget is exhausted, before the first frame goes on air. A message is always sent whole or refused whole, never partially aired. Tune via `sendRateLimit` (`maxSends`, `groupMaxSends`, `windowMs`, `enabled`).
 
+Before that final account rail, `sessionSendRateLimit` limits each trusted channel+account+canonical `sessionKey` to **8 estimated DM radio packets and 768 UTF-8 text bytes per 10 minutes**. Opted-in group sends have a still stricter **1 packet per session** default, reserving part of the 3-packet account group budget for other sessions. The pre-delivery `message_sending` hook uses the real UTF-8 chunker and `textChunkLimit` for packet estimates, counts trimmed payload bytes (not framing overhead), synchronously charges accepted payloads, and cancels excess whole payloads with a retry delay — never a queue. It does not charge delivery success or replace the low-level account/class guard. Internal sends with no session key remain account-only. `sessionSendRateLimit.enabled: false` disables only this new layer; `sendRateLimit`, `groupTransmit`, and all group policy/refusal behavior stay independent and unchanged.
+
 If your node advertises a GPS position, that position is broadcast to every node in range — publish one you are comfortable sharing with strangers.
 
 ### Sender identity: what you can and cannot trust

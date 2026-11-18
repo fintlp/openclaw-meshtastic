@@ -22,7 +22,7 @@ import {
 } from "./normalize.js";
 import { getMeshtasticRuntime } from "./runtime.js";
 import { assertSendRateLimit, resolveSendRateLimitConfig } from "./rate-limit.js";
-import type { CoreConfig } from "./types.js";
+import type { CoreConfig, MeshtasticAccountConfig } from "./types.js";
 
 type SendMeshtasticOptions = {
   cfg: CoreConfig;
@@ -364,6 +364,14 @@ export async function sendTextWithoutBlockingForAck(params: {
   });
 }
 
+/** Single source of truth for hook-time packet estimates and the radio send path. */
+export function chunkMeshtasticOutboundText(
+  text: string,
+  config: Pick<MeshtasticAccountConfig, "textChunkLimit">,
+): string[] {
+  return chunkUtf8(text, resolveChunkLimitBytes(config.textChunkLimit));
+}
+
 export async function sendMessageMeshtastic(
   to: string,
   text: string,
@@ -425,7 +433,7 @@ export async function sendMessageMeshtastic(
         "Set channels.meshtastic.groupTransmit=true to opt in to group transmission.",
     );
   }
-  const chunks = chunkUtf8(text, resolveChunkLimitBytes(account.config.textChunkLimit));
+  const chunks = chunkMeshtasticOutboundText(text, account.config);
   if (chunks.length === 0) {
     throw new Error("Message must be non-empty for Meshtastic sends");
   }

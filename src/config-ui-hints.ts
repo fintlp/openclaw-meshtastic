@@ -53,6 +53,10 @@ export const meshtasticChannelConfigUiHints = {
     label: "Meshtastic Send Rate Limit",
     help: "Flood guard: caps outbound airtime packets per rolling window (default 20 per 10 minutes for DMs, 3 for group channels). Refuses with a retry hint when tripped. Set enabled:false to disable.",
   },
+  sessionSendRateLimit: {
+    label: "Per-Session Send Rate Limit",
+    help: "Pre-delivery flood guard per trusted canonical session (defaults: 8 estimated DM packets and 768 UTF-8 text bytes per 10 minutes; 1 group packet). Refuses the whole payload with a retry hint; no queue. enabled:false affects only this layer, never the account Send Rate Limit.",
+  },
   durability: {
     label: "Inbound Durability",
     help: "At-least-once inbound delivery across gateway restarts (default on, no setup). Admitted frames are logged locally before dispatch and replayed after a restart — updates and crashes no longer eat messages; a restart mid-turn can duplicate a reply. Pending bodies are blanked at terminal states. Disable only if you cannot accept a pending-body copy at rest (delete the .sqlite + sidecars when opting out).",
