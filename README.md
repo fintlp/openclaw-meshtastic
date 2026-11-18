@@ -25,6 +25,8 @@ Meshtastic is the largest LoRa mesh ecosystem there is — cheap hardware, phone
    openclaw onboard   # choose Meshtastic
    ```
 
+   `openclaw plugins inspect` will show Trust `provenance-invalid` for community ClawHub plugins — that is expected, not a fault (details in [docs/PUBLISHING.md](docs/PUBLISHING.md)).
+
    The wizard asks how the gateway reaches your node (TCP 4403 / HTTP 4433 / USB serial), **probes the connection before writing anything** (with targeted fixes for the classic traps — see below), reads the node's identity (ID, name, LoRa region) off the radio, and walks you through access policy with the safe defaults pre-selected.
 3. **Send yourself a DM** from a second device — a handheld, or the phone app paired to another node. Watch your agent answer. Over LoRa.
 
