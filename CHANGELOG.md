@@ -6,7 +6,7 @@ This fork (`fintlp/openclaw-meshtastic`) is the maintained line; upstream
 (`skrashevich/openclaw-meshtastic`) has been dormant since May 2026. Fixes
 are offered upstream as PRs. Date-based versioning: `2026.M.P`.
 
-## Unreleased
+## 2026.11.4 - 2026-11-18
 
 Fixed
 
@@ -15,6 +15,8 @@ Fixed
 Changed
 
 - **Directory listings show the groups an account effectively uses (#46; port of openclaw-meshcore #90).** `openclaw directory` peers/groups, outbound target resolution and the conversation registry read the account's own group map only, so a single named account with `groups: {}` (which inherits root `channels.meshtastic.groups` under host `inheritEmptyKeys`) listed none of the inherited groups or their `allowFrom` peers although the runtime admits them. The listers now use the same host-aware resolver as admission, mention and tool policy (`resolveMeshtasticEffectiveGroups`). Display-only: admission, mention and tool-policy results are unchanged, and multi-account setups still list no inherited groups. The setup wizard's prefilled allowlist is unchanged. **Operator-visible:** inherited groups and peers now appear in directory listings and can therefore become outbound targets / registry entries.
+
+- **The npm publish workflow is manual only.** The package ships through ClawHub, not npm, so the workflow no longer runs on every GitHub release (workflow_dispatch only).
 
 Docs
 
