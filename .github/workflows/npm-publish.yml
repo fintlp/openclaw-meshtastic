@@ -1,9 +1,11 @@
 name: npm publish
 
+# Manual only. The package is distributed through ClawHub, not npm
+# (@fintlp/openclaw-meshtastic is not published on npm). A release-triggered
+# run would publish to the public npm registry as a side effect of every
+# GitHub release, so the release trigger was removed.
 on:
   workflow_dispatch:
-  release:
-    types: [published]
 
 jobs:
   publish:
