@@ -55,7 +55,18 @@ clawhub package publish . --changelog "$(awk '/^## <VERSION>/{f=1;next} /^## /{f
   scans finish (registry review window — normal). Check with
   `clawhub package inspect @fintlp/openclaw-meshtastic`.
 
+## Release rules (issue #62; verified 2026-11-18)
+
+`dist/` is gitignored and `prepack` rebuilds it, the README ships in the package, and `clawhub package publish` reads the GitHub source on `main`. So:
+
+1. **Tag the exact tested commit.** Never "tag HEAD" — take the SHA that was live-tested and tag that explicitly.
+2. **Build in a clean worktree whose folder is named `openclaw-meshtastic`.** The bundler derives an identifier from the folder name. Verified: the same commit built in a folder called `other-name` differs from the `openclaw-meshtastic` build in exactly one file, `dist/index.js` (`openclaw_meshtastic_default` vs `other_name_default`). That is cosmetic, but it breaks a byte-exact comparison.
+3. **Compare the built `dist/` with the code that was live-tested** (`diff -r`) before publishing. Expect zero differences.
+4. **Publish before later docs changes reach `main`.** Docs-only commits landing between the tested commit and the publish ship in the package (the README is part of it) and make the published artifact differ from the tested one.
+
 ## After publish
+
+- **Trust `provenance-invalid` is expected.** `openclaw plugins inspect` reports it for community-channel ClawHub plugins. Per the host code read on 2026.11.3 (`resolvePluginTrust`), only packages from the official catalog on the `official` channel are `trusted-official`; a community plugin cannot reach that state, and it does not clear when the scan passes. The signal to watch is the scan status: `clawhub package moderation-status @fintlp/openclaw-meshtastic`.
 
 - The installed checkout on the gateway host
   (`~/.openclaw/plugins/openclaw-meshtastic`, remote name `fork`) syncs to the
