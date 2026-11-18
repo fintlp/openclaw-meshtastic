@@ -16,6 +16,8 @@ Changed
 
 - **Directory listings show the groups an account effectively uses (#46; port of openclaw-meshcore #90).** `openclaw directory` peers/groups, outbound target resolution and the conversation registry read the account's own group map only, so a single named account with `groups: {}` (which inherits root `channels.meshtastic.groups` under host `inheritEmptyKeys`) listed none of the inherited groups or their `allowFrom` peers although the runtime admits them. The listers now use the same host-aware resolver as admission, mention and tool policy (`resolveMeshtasticEffectiveGroups`). Display-only: admission, mention and tool-policy results are unchanged, and multi-account setups still list no inherited groups. The setup wizard's prefilled allowlist is unchanged. **Operator-visible:** inherited groups and peers now appear in directory listings and can therefore become outbound targets / registry entries.
 
+- **The npm publish workflow is manual only.** The package ships through ClawHub, not npm, so the workflow no longer runs on every GitHub release (workflow_dispatch only).
+
 Docs
 
 - **PUBLISHING.md release rules and the `provenance-invalid` note (port of openclaw-meshcore #62).** Tag the exact tested commit, build in a clean worktree named `openclaw-meshtastic`, compare `dist/` with the live-tested build, publish before later docs reach `main`; and why Trust `provenance-invalid` is expected for community ClawHub plugins.
