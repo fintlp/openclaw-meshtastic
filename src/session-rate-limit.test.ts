@@ -191,6 +191,20 @@ describe("Meshtastic low-level per-session flood guard (#5)", () => {
     expect(sendText).toHaveBeenCalledTimes(1);
   });
 
+  it("refuses disabled groups and reserved broadcast before charging the session", async () => {
+    const cfg = config({ groupTransmit: false, sessionSendRateLimit: { maxSends: 1, maxBytes: 100, groupMaxSends: 1 } });
+    getMock.mockReturnValue(undefined);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await expect(sendMessageMeshtastic("channel:0", "x", { cfg, sessionKey: "s" })).rejects.toThrow("receive-only");
+    await expect(sendMessageMeshtastic("^all", "x", { cfg, sessionKey: "s" })).rejects.toThrow("reserved broadcast");
+    expect(sessionSendRateLimitBucketCountForTests()).toBe(0);
+    expect(connectMock).not.toHaveBeenCalled();
+    expect(warn.mock.calls.every(([line]) => !line.includes("per-session"))).toBe(true);
+    const sendText = vi.fn(async () => 42);
+    expect(await attempt({ cfg, handle: device(sendText), sessionKey: "s" })).toBeNull();
+    expect(sendText).toHaveBeenCalledTimes(1);
+  });
+
   it("classifies normalized prefixed group aliases and keeps DM/group buckets separate", async () => {
     const cfg = config({
       groupTransmit: true,
@@ -269,6 +283,8 @@ describe("Meshtastic low-level per-session flood guard (#5)", () => {
   it("pins secure runtime, zod, and generated-manifest defaults", () => {
     expect(SESSION_SEND_RATE_LIMIT_DEFAULTS).toEqual({ enabled: true, maxSends: 10, maxBytes: 2_210, windowMs: 600_000, groupMaxSends: 3 });
     expect(resolveSessionSendRateLimitConfig(undefined)).toEqual(SESSION_SEND_RATE_LIMIT_DEFAULTS);
+    expect(resolveSessionSendRateLimitConfig({ windowMs: 999 }).windowMs).toBe(600_000);
+    expect(resolveSessionSendRateLimitConfig({ windowMs: 1_000 }).windowMs).toBe(1_000);
     expect(MeshtasticConfigSchema.parse({}).sessionSendRateLimit).toEqual(SESSION_SEND_RATE_LIMIT_DEFAULTS);
     expect(MeshtasticConfigSchema.safeParse({ sessionSendRateLimit: { groupMaxSends: 0 } }).success).toBe(false);
     const manifest = JSON.parse(readFileSync(new URL("../openclaw.plugin.json", import.meta.url), "utf8"));
