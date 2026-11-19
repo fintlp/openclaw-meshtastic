@@ -439,6 +439,19 @@ export async function sendMessageMeshtastic(
         "Set channels.meshtastic.groupTransmit=true to opt in to group transmission.",
     );
   }
+  // DM node numbers are validated before chunking, before both flood guards
+  // and before any device connection: a target that can never be sent must
+  // not consume session/account budget or open the radio (aligned with the
+  // meshcore resolve-before-charge order). Group targets carry no node
+  // number; the DM-branch check below stays as the final invariant.
+  if (!isMeshtasticGroupTarget(target)) {
+    const nodeNum = parseMeshtasticNodeNum(target);
+    if (nodeNum === undefined || !isValidMeshtasticNodeNum(nodeNum)) {
+      throw new Error(
+        `Invalid Meshtastic node target: ${target} (valid node numbers are 1-4294967294; the reserved broadcast address and out-of-range values are refused — LoRa airtime rule)`,
+      );
+    }
+  }
   const chunks = chunkMeshtasticOutboundText(text, account.config);
   if (chunks.length === 0) {
     throw new Error("Message must be non-empty for Meshtastic sends");

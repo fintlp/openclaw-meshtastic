@@ -124,6 +124,19 @@ describe("Meshtastic low-level per-session flood guard (#5)", () => {
     expect(getMock).not.toHaveBeenCalled();
   });
 
+  it("refuses invalid DM node numbers before session charging and before connect", async () => {
+    const cfg = config();
+    getMock.mockReturnValue(undefined); // no cached device: sending would require connect
+    for (const form of ["!00000000", "node:0", "!1ffffffff", "node:4294967296"]) {
+      await expect(
+        sendMessageMeshtastic(form, "no charge", { cfg, sessionKey: "agent:main:producer" }),
+      ).rejects.toThrow(/valid node numbers are 1-4294967294/);
+    }
+    expect(sessionSendRateLimitBucketCountForTests()).toBe(0);
+    expect(connectMock).not.toHaveBeenCalled();
+    expect(getMock).not.toHaveBeenCalled();
+  });
+
   it("shares one producing budget across fanout A,B,C,A instead of deriving identity from targets", async () => {
     const cfg = config();
     const sendText = vi.fn(async () => 42);
