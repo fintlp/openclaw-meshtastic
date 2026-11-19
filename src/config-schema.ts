@@ -80,6 +80,16 @@ const MeshtasticGroupSchema = z
 
 const MeshtasticTransportSchema = z.enum(["http", "tcp", "serial"]);
 
+const MeshtasticSessionSendRateLimitSchema = z
+  .object({
+    enabled: z.boolean().optional().default(true),
+    maxSends: z.number().int().min(1).optional().default(10),
+    maxBytes: z.number().int().min(1).optional().default(2_210),
+    windowMs: z.number().int().min(1_000).optional().default(600_000),
+    groupMaxSends: z.number().int().min(1).optional().default(3),
+  })
+  .strict();
+
 /** Node-id list for PKI operator actions (issue #7): each entry must parse as a real node id (never 0, never the broadcast number). */
 const MeshtasticNodeIdListSchema = z.array(z.string()).refine(
   (entries) =>
@@ -134,6 +144,7 @@ const MeshtasticAccountSchemaBase = z
       })
       .strict()
       .optional(),
+    sessionSendRateLimit: MeshtasticSessionSendRateLimitSchema.optional(),
     logInboundMessageContent: z.boolean().optional(),
     dmIdentity: z.enum(["known-keys", "strict", "off"]).optional().default("known-keys"),
     commandIdentity: z.enum(["verified", "policy"]).optional().default("verified"),
@@ -169,6 +180,13 @@ const MeshtasticAccountSchema = MeshtasticAccountSchemaBase.superRefine((value, 
 });
 
 export const MeshtasticConfigSchema = MeshtasticAccountSchemaBase.extend({
+  sessionSendRateLimit: MeshtasticSessionSendRateLimitSchema.optional().default({
+    enabled: true,
+    maxSends: 10,
+    maxBytes: 2_210,
+    windowMs: 600_000,
+    groupMaxSends: 3,
+  }),
   accounts: z.record(z.string(), MeshtasticAccountSchema.optional()).optional(),
   defaultAccount: z.string().optional(),
 }).superRefine((value, ctx) => {

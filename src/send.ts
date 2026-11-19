@@ -22,11 +22,17 @@ import {
 } from "./normalize.js";
 import { getMeshtasticRuntime } from "./runtime.js";
 import { assertSendRateLimit, resolveSendRateLimitConfig } from "./rate-limit.js";
-import type { CoreConfig } from "./types.js";
+import {
+  enforceMeshtasticSessionSendRateLimit,
+  resolveSessionSendRateLimitConfig,
+} from "./session-rate-limit.js";
+import type { CoreConfig, MeshtasticAccountConfig } from "./types.js";
 
 type SendMeshtasticOptions = {
   cfg: CoreConfig;
   accountId?: string;
+  /** Trusted producing session supplied by the host/delivery path (2026.11.3+). */
+  sessionKey?: string;
   replyTo?: string;
   target?: string;
   deviceHandle?: MeshtasticDeviceHandle;
@@ -364,6 +370,14 @@ export async function sendTextWithoutBlockingForAck(params: {
   });
 }
 
+/** Single source of truth for final outbound packet accounting and the radio send path. */
+export function chunkMeshtasticOutboundText(
+  text: string,
+  config: Pick<MeshtasticAccountConfig, "textChunkLimit">,
+): string[] {
+  return chunkUtf8(text, resolveChunkLimitBytes(config.textChunkLimit));
+}
+
 export async function sendMessageMeshtastic(
   to: string,
   text: string,
@@ -425,10 +439,35 @@ export async function sendMessageMeshtastic(
         "Set channels.meshtastic.groupTransmit=true to opt in to group transmission.",
     );
   }
-  const chunks = chunkUtf8(text, resolveChunkLimitBytes(account.config.textChunkLimit));
+  // DM node numbers are validated before chunking, before both flood guards
+  // and before any device connection: a target that can never be sent must
+  // not consume session/account budget or open the radio (aligned with the
+  // meshcore resolve-before-charge order). Group targets carry no node
+  // number; the DM-branch check below stays as the final invariant.
+  if (!isMeshtasticGroupTarget(target)) {
+    const nodeNum = parseMeshtasticNodeNum(target);
+    if (nodeNum === undefined || !isValidMeshtasticNodeNum(nodeNum)) {
+      throw new Error(
+        `Invalid Meshtastic node target: ${target} (valid node numbers are 1-4294967294; the reserved broadcast address and out-of-range values are refused — LoRa airtime rule)`,
+      );
+    }
+  }
+  const chunks = chunkMeshtasticOutboundText(text, account.config);
   if (chunks.length === 0) {
     throw new Error("Message must be non-empty for Meshtastic sends");
   }
+
+  // Use the normalized target for class accounting, including prefixed aliases.
+  enforceMeshtasticSessionSendRateLimit({
+    accountId: account.accountId,
+    sessionKey: opts.sessionKey,
+    kind: isMeshtasticGroupTarget(target) ? "group" : "dm",
+    packets: chunks.length,
+    bytes: utf8Bytes(text.trim()),
+    config: resolveSessionSendRateLimitConfig(
+      account.config.sessionSendRateLimit as Record<string, unknown> | undefined,
+    ),
+  });
 
   // Flood guard: refuse the whole message (never partially aired) when the
   // account's rolling airtime budget is exhausted.

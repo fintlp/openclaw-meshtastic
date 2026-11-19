@@ -125,6 +125,7 @@ function mergeMeshtasticAccountConfig(cfg: CoreConfig, accountId: string): Mesht
       | undefined,
     accountId,
     omitKeys: ["defaultAccount"],
+    nestedObjectKeys: ["sessionSendRateLimit"],
     normalizeAccountId,
   });
 }

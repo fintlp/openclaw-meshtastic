@@ -113,18 +113,24 @@ async function deliverMeshtasticReply(params: {
   cfg: CoreConfig;
   target: string;
   accountId: string;
-  sendReply?: (target: string, text: string, replyToId?: string) => Promise<void>;
+  sendReply?: (target: string, text: string, replyToId?: string, sessionKey?: string) => Promise<void>;
+  sessionKey?: string;
   statusSink?: (patch: { lastOutboundAt?: number }) => void;
 }) {
   await deliverFormattedTextWithAttachments({
     payload: params.payload,
     send: async ({ text, replyToId }) => {
       if (params.sendReply) {
-        await params.sendReply(params.target, text, replyToId);
+        if (params.sessionKey) {
+          await params.sendReply(params.target, text, replyToId, params.sessionKey);
+        } else {
+          await params.sendReply(params.target, text, replyToId);
+        }
       } else {
         await sendMessageMeshtastic(params.target, text, {
           cfg: params.cfg,
           accountId: params.accountId,
+          sessionKey: params.sessionKey,
           replyTo: replyToId,
         });
       }
@@ -139,7 +145,7 @@ export async function handleMeshtasticInbound(params: {
   config: CoreConfig;
   runtime: RuntimeEnv;
   myNodeNum?: number | null;
-  sendReply?: (target: string, text: string, replyToId?: string) => Promise<void>;
+  sendReply?: (target: string, text: string, replyToId?: string, sessionKey?: string) => Promise<void>;
   statusSink?: (patch: { lastInboundAt?: number; lastOutboundAt?: number }) => void;
   /** Inbound durability store (#8). When present, session-bound frames are logged before dispatch and the cursor advances after the host accepts the turn. */
   durability?: DurabilityStore | null;
@@ -651,6 +657,7 @@ export async function handleMeshtasticInbound(params: {
               cfg: config,
               target: peerId,
               accountId: account.accountId,
+              sessionKey: route.sessionKey,
               sendReply: params.sendReply,
               statusSink: params.statusSink,
             });

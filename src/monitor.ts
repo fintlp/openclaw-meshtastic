@@ -404,13 +404,14 @@ export function monitorMeshtasticProvider(
 
     // Shared dispatch path for live intake and durability replay (#8, m4):
     // one builder, identical params, channel filter applied in both modes.
-    const dmSendReply = async (target: string, text: string, replyToId?: string) => {
+    const dmSendReply = async (target: string, text: string, replyToId?: string, sessionKey?: string) => {
       const { sendMessageMeshtastic } = await import("./send.js");
       await sendMessageMeshtastic(target, text, {
         cfg,
         accountId: account.accountId,
         replyTo: replyToId,
         deviceHandle: handle,
+        sessionKey,
       });
       rememberOutboundEcho(text);
       opts.statusSink?.({ lastOutboundAt: Date.now() });

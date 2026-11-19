@@ -6,6 +6,16 @@ This fork (`fintlp/openclaw-meshtastic`) is the maintained line; upstream
 (`skrashevich/openclaw-meshtastic`) has been dormant since May 2026. Fixes
 are offered upstream as PRs. Date-based versioning: `2026.M.P`.
 
+## Unreleased
+
+Security
+
+- **A runaway AI session can no longer drain the shared radio allowance (#5).** Added a per-producing-session circuit breaker, enabled by default: over-limit sends are refused before radio I/O and logged with a retry delay instead of being queued. The existing account-wide backstop remains, and no Telegram/global message hooks are registered. `sessionSendRateLimit` enforces **10 final production DM chunks and 2210 trimmed UTF-8 bytes** per resolved account + producing session per rolling 10 minutes, plus a separate **3-packet and 2210-byte group budget** that permits ordinary two-packet replies. Enforcement is synchronous before device I/O and before the unchanged account/class backstop, with group classification based on the normalized target (including prefixed aliases). Producing keys flow through the message adapter, attached-results sender, no-`sendReply` fallback, and agent-turn auto-reply path; fanout from one key (including `dmScope: "main"`) shares one budget. The secure default lives only at the root: named accounts inherit it, explicit partial account overrides deep-merge field-by-field, and only an explicit account `enabled: true` reverses a root opt-out. On 2026.10.5, host-driven adapter sends without a producing key are account-only, but plugin auto-replies still carry the route key and remain limited; the host floor is unchanged. Missing, empty, and whitespace-only keys are account-only. Admission is charged without refund, and buckets reset on restart. Native/pairing paths stay keyless, and group policy remains independent. Refusal throws a typed `retryAfterMs` error and emits one metadata-only plugin warning; the host `onError` may additionally log that typed failure. Oversized single sends must be split or tuned because waiting alone will not admit them. **Upgrading?** set `channels.meshtastic.sessionSendRateLimit.enabled=false` to opt out of only this layer, or tune `maxSends`, `maxBytes`, `groupMaxSends`, and `windowMs` deliberately; named accounts inherit that opt-out unless explicitly re-enabled.
+
+Fixed
+
+- **Invalid DM node numbers are refused before flood-guard charging and before any device connection (#5).** Sends to node 0 (`node:0`, `!00000000`) or out-of-range numbers (`!1ffffffff`, `node:4294967296`) passed target normalization, were charged against the producing session's budget, and opened the radio connection before the DM branch refused them. Validation now runs right after target resolution and group admission — the same resolve-before-charge order as openclaw-meshcore #46 — so a never-sendable target costs no session/account budget and no device I/O. The refusal error text is unchanged and the device-exit validation remains as defense in depth.
+
 ## 2026.11.4 - 2026-11-18
 
 Fixed
