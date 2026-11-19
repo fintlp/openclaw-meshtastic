@@ -167,6 +167,32 @@ describe("meshtastic inbound behavior", () => {
 
     expect(upsertPairingRequestMock).toHaveBeenCalled();
     expect(sendReply).toHaveBeenCalled();
+    expect(sendReply.mock.calls[0]).toHaveLength(3); // pairing stays account-only
+  });
+
+  it("forwards only the agent-turn route sessionKey to automatic reply delivery", async () => {
+    const sendReply = vi.fn(async () => undefined);
+    let producingSessionKey: string | undefined;
+    const inboundRun = vi.fn(async (params) => {
+      const turn = params.adapter.resolveTurn();
+      producingSessionKey = turn.routeSessionKey;
+      await turn.delivery.deliver({ text: "automatic reply" });
+      return { dispatched: true };
+    });
+    installDispatchRuntime(inboundRun);
+    await handleMeshtasticInbound({
+      message: createMessage(),
+      account: createAccount({
+        config: { dmPolicy: "allowlist", allowFrom: ["!00000002"], groupPolicy: "disabled" },
+      } as never),
+      config: { channels: { meshtastic: { host: "192.168.1.10" } } } as CoreConfig,
+      runtime: createRuntimeEnv(),
+      sendReply,
+    });
+    expect(producingSessionKey).toEqual(expect.any(String));
+    expect(sendReply).toHaveBeenCalledWith(
+      "!00000002", "automatic reply", undefined, producingSessionKey,
+    );
   });
 
   it("drops a listed channel with no sender list (fail-closed since 2026.10.27)", async () => {

@@ -55,7 +55,7 @@ export const meshtasticChannelConfigUiHints = {
   },
   sessionSendRateLimit: {
     label: "Per-Session Send Rate Limit",
-    help: "Pre-delivery flood guard per trusted canonical session (defaults: 8 estimated DM packets and 768 UTF-8 text bytes per 10 minutes; 1 group packet). Refuses the whole payload with a retry hint; no queue. enabled:false affects only this layer, never the account Send Rate Limit.",
+    help: "Low-level flood guard per producing session (defaults: 10 DM packets and 2210 trimmed UTF-8 text bytes per 10 minutes; 3 group packets). Throws a typed retry error before device I/O; no global hooks or queue. 2026.10.5/no-key sends are account-only. enabled:false affects only this layer.",
   },
   durability: {
     label: "Inbound Durability",

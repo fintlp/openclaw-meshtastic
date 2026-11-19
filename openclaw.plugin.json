@@ -328,10 +328,10 @@
           "sessionSendRateLimit": {
             "default": {
               "enabled": true,
-              "maxSends": 8,
-              "maxBytes": 768,
+              "maxSends": 10,
+              "maxBytes": 2210,
               "windowMs": 600000,
-              "groupMaxSends": 1
+              "groupMaxSends": 3
             },
             "type": "object",
             "properties": {
@@ -340,13 +340,13 @@
                 "type": "boolean"
               },
               "maxSends": {
-                "default": 8,
+                "default": 10,
                 "type": "integer",
                 "minimum": 1,
                 "maximum": 9007199254740991
               },
               "maxBytes": {
-                "default": 768,
+                "default": 2210,
                 "type": "integer",
                 "minimum": 1,
                 "maximum": 9007199254740991
@@ -358,7 +358,7 @@
                 "maximum": 9007199254740991
               },
               "groupMaxSends": {
-                "default": 1,
+                "default": 3,
                 "type": "integer",
                 "minimum": 1,
                 "maximum": 9007199254740991
@@ -780,10 +780,10 @@
                 "sessionSendRateLimit": {
                   "default": {
                     "enabled": true,
-                    "maxSends": 8,
-                    "maxBytes": 768,
+                    "maxSends": 10,
+                    "maxBytes": 2210,
                     "windowMs": 600000,
-                    "groupMaxSends": 1
+                    "groupMaxSends": 3
                   },
                   "type": "object",
                   "properties": {
@@ -792,13 +792,13 @@
                       "type": "boolean"
                     },
                     "maxSends": {
-                      "default": 8,
+                      "default": 10,
                       "type": "integer",
                       "minimum": 1,
                       "maximum": 9007199254740991
                     },
                     "maxBytes": {
-                      "default": 768,
+                      "default": 2210,
                       "type": "integer",
                       "minimum": 1,
                       "maximum": 9007199254740991
@@ -810,7 +810,7 @@
                       "maximum": 9007199254740991
                     },
                     "groupMaxSends": {
-                      "default": 1,
+                      "default": 3,
                       "type": "integer",
                       "minimum": 1,
                       "maximum": 9007199254740991
@@ -1002,7 +1002,7 @@
         },
         "sessionSendRateLimit": {
           "label": "Per-Session Send Rate Limit",
-          "help": "Pre-delivery flood guard per trusted canonical session (defaults: 8 estimated DM packets and 768 UTF-8 text bytes per 10 minutes; 1 group packet). Refuses the whole payload with a retry hint; no queue. enabled:false affects only this layer, never the account Send Rate Limit."
+          "help": "Low-level flood guard per producing session (defaults: 10 DM packets and 2210 trimmed UTF-8 text bytes per 10 minutes; 3 group packets). Throws a typed retry error before device I/O; no global hooks or queue. 2026.10.5/no-key sends are account-only. enabled:false affects only this layer."
         },
         "durability": {
           "label": "Inbound Durability",

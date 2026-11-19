@@ -22,11 +22,17 @@ import {
 } from "./normalize.js";
 import { getMeshtasticRuntime } from "./runtime.js";
 import { assertSendRateLimit, resolveSendRateLimitConfig } from "./rate-limit.js";
+import {
+  enforceMeshtasticSessionSendRateLimit,
+  resolveSessionSendRateLimitConfig,
+} from "./session-rate-limit.js";
 import type { CoreConfig, MeshtasticAccountConfig } from "./types.js";
 
 type SendMeshtasticOptions = {
   cfg: CoreConfig;
   accountId?: string;
+  /** Trusted producing session supplied by the host/delivery path (2026.11.3+). */
+  sessionKey?: string;
   replyTo?: string;
   target?: string;
   deviceHandle?: MeshtasticDeviceHandle;
@@ -437,6 +443,18 @@ export async function sendMessageMeshtastic(
   if (chunks.length === 0) {
     throw new Error("Message must be non-empty for Meshtastic sends");
   }
+
+  // Use the normalized target for class accounting, including prefixed aliases.
+  enforceMeshtasticSessionSendRateLimit({
+    accountId: account.accountId,
+    sessionKey: opts.sessionKey,
+    kind: isMeshtasticGroupTarget(target) ? "group" : "dm",
+    packets: chunks.length,
+    bytes: utf8Bytes(text.trim()),
+    config: resolveSessionSendRateLimitConfig(
+      account.config.sessionSendRateLimit as Record<string, unknown> | undefined,
+    ),
+  });
 
   // Flood guard: refuse the whole message (never partially aired) when the
   // account's rolling airtime budget is exhausted.

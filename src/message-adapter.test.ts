@@ -41,12 +41,14 @@ describe("meshtastic message adapter", () => {
             cfg,
             to: "!00000001",
             text: "hello mesh",
-          });
+            sessionKey: "agent:main:producing",
+          } as never);
           expect(sendMessageMeshtasticMock).toHaveBeenCalledWith(
             "!00000001",
             "hello mesh",
             expect.objectContaining({
               cfg,
+              sessionKey: "agent:main:producing",
             }),
           );
           expect(result?.receipt.platformMessageIds).toEqual(["99"]);

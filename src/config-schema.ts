@@ -137,19 +137,19 @@ const MeshtasticAccountSchemaBase = z
     sessionSendRateLimit: z
       .object({
         enabled: z.boolean().optional().default(true),
-        maxSends: z.number().int().min(1).optional().default(8),
-        maxBytes: z.number().int().min(1).optional().default(768),
+        maxSends: z.number().int().min(1).optional().default(10),
+        maxBytes: z.number().int().min(1).optional().default(2_210),
         windowMs: z.number().int().min(1_000).optional().default(600_000),
-        groupMaxSends: z.number().int().min(1).optional().default(1),
+        groupMaxSends: z.number().int().min(1).optional().default(3),
       })
       .strict()
       .optional()
       .default({
         enabled: true,
-        maxSends: 8,
-        maxBytes: 768,
+        maxSends: 10,
+        maxBytes: 2_210,
         windowMs: 600_000,
-        groupMaxSends: 1,
+        groupMaxSends: 3,
       }),
     logInboundMessageContent: z.boolean().optional(),
     dmIdentity: z.enum(["known-keys", "strict", "off"]).optional().default("known-keys"),
