@@ -172,9 +172,14 @@ describe("Meshtastic low-level per-session flood guard (#5)", () => {
     const handle = device(sendText);
     expect(await attempt({ cfg, handle })).toBeNull();
     expect(await attempt({ cfg, handle, sessionKey: "" })).toBeNull();
+    // Two sends with the same whitespace-only key and maxSends=1: both must
+    // succeed (account-only). If the blank-key check were ever deleted, the
+    // second send would be charged against a real per-session bucket of 1
+    // and this would start failing.
+    expect(await attempt({ cfg, handle, sessionKey: "   " })).toBeNull();
     expect(await attempt({ cfg, handle, sessionKey: "   " })).toBeNull();
     expect(await attempt({ cfg, handle })).toBeNull();
-    expect(sendText).toHaveBeenCalledTimes(4);
+    expect(sendText).toHaveBeenCalledTimes(5);
   });
 
   it("disabled semantics affect only the session layer", async () => {

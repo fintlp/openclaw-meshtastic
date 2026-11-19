@@ -33,6 +33,31 @@ describe("Meshtastic manifest sync drift guard", () => {
       },
     },
     {
+      // Isolated from the case above: that one also injects an unrelated
+      // "sessionSendRateLimit" entry into the account's own required list,
+      // a key the builder never touches, so it alone would already make
+      // broken !== committed even if object-default stripping were a no-op.
+      // This case injects only accountSessionLimit.default (a real,
+      // concrete root default value) so the parity failure below is
+      // provably caused by the default leaking through, not by that
+      // unrelated required-list artifact.
+      name: "object default stripping in isolation (no required-list change)",
+      options: { stripAccountObjectDefaults: false },
+      prepare(schema: any) {
+        const root = schema.properties.sessionSendRateLimit;
+        const account = schema.properties.accounts.additionalProperties;
+        account.properties.sessionSendRateLimit.default = structuredClone(root.default);
+        return schema;
+      },
+      verify(schema: any) {
+        const accounts = schema.properties.accounts.additionalProperties;
+        expect(accounts.properties.sessionSendRateLimit.default).toEqual(
+          MeshtasticChannelConfigSchema.schema.properties.sessionSendRateLimit.default,
+        );
+        expect(accounts.required ?? []).not.toContain("sessionSendRateLimit");
+      },
+    },
+    {
       name: "inner-field default stripping",
       options: { stripAccountInnerDefaults: false },
       verify(schema: any) {
