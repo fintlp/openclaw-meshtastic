@@ -97,7 +97,12 @@ export function enforceMeshtasticSessionSendRateLimit(params: {
   config: SessionSendRateLimitConfig;
   nowMs?: number;
 }): void {
-  if (!params.sessionKey || !params.config.enabled || (params.packets <= 0 && params.bytes <= 0)) return;
+  if (
+    !params.sessionKey ||
+    params.sessionKey.trim().length === 0 ||
+    !params.config.enabled ||
+    (params.packets <= 0 && params.bytes <= 0)
+  ) return;
   const now = params.nowMs ?? Date.now();
   sweepStaleBuckets(now);
   const kind = params.kind ?? "dm";
@@ -127,7 +132,7 @@ export function enforceMeshtasticSessionSendRateLimit(params: {
         `${exceeded} in the rolling ${Math.round(params.config.windowMs / 60_000)}m window. ` +
         `Retry in ~${Math.ceil(retryAfterMs / 1_000)}s (retryAfterMs=${retryAfterMs}). ` +
         (oversized
-          ? "This single send exceeds the session budget; split it or tune channels.meshtastic.sessionSendRateLimit. "
+          ? "This single send exceeds the session budget: waiting alone will not admit it; split it or tune channels.meshtastic.sessionSendRateLimit. "
           : "") +
         "Nothing was queued. The independent channels.meshtastic.sendRateLimit account guard remains active.",
       retryAfterMs,

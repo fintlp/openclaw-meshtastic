@@ -18,6 +18,20 @@ const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8")) as {
 };
 
 const channelMeta = packageJson.openclaw?.channel ?? {};
+
+// Named-account overrides must contain only fields the operator explicitly
+// wrote. Hydrating account-level defaults here would re-enable a root opt-out
+// and overwrite root tuning before resolveMergedAccountConfig can deep-merge.
+const channelSchema = structuredClone(MeshtasticChannelConfigSchema.schema) as Record<string, any>;
+const accountSessionLimit = channelSchema.properties?.accounts?.additionalProperties?.properties
+  ?.sessionSendRateLimit as Record<string, any> | undefined;
+if (accountSessionLimit) {
+  delete accountSessionLimit.default;
+  delete accountSessionLimit.required;
+  for (const field of Object.values(accountSessionLimit.properties ?? {}) as Array<Record<string, unknown>>) {
+    delete field.default;
+  }
+}
 manifest.channelConfigs = {
   ...(typeof manifest.channelConfigs === "object" && manifest.channelConfigs
     ? manifest.channelConfigs
@@ -26,7 +40,7 @@ manifest.channelConfigs = {
     label: channelMeta.label ?? "Meshtastic",
     description:
       channelMeta.blurb ?? "LoRa mesh messaging via Meshtastic node HTTP API.",
-    schema: MeshtasticChannelConfigSchema.schema,
+    schema: channelSchema,
     uiHints: MeshtasticChannelConfigSchema.uiHints,
   },
 };

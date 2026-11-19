@@ -370,7 +370,7 @@ export async function sendTextWithoutBlockingForAck(params: {
   });
 }
 
-/** Single source of truth for hook-time packet estimates and the radio send path. */
+/** Single source of truth for final outbound packet accounting and the radio send path. */
 export function chunkMeshtasticOutboundText(
   text: string,
   config: Pick<MeshtasticAccountConfig, "textChunkLimit">,

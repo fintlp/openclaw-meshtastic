@@ -190,8 +190,36 @@ describe("meshtastic inbound behavior", () => {
       sendReply,
     });
     expect(producingSessionKey).toEqual(expect.any(String));
+    expect(producingSessionKey).not.toBe("!00000002");
     expect(sendReply).toHaveBeenCalledWith(
       "!00000002", "automatic reply", undefined, producingSessionKey,
+    );
+  });
+
+  it("forwards the route key through the no-sendReply direct-send fallback", async () => {
+    let producingSessionKey: string | undefined;
+    const inboundRun = vi.fn(async (params) => {
+      const turn = params.adapter.resolveTurn();
+      producingSessionKey = turn.routeSessionKey;
+      await turn.delivery.deliver({ text: "automatic reply" });
+      return { dispatched: true };
+    });
+    installDispatchRuntime(inboundRun);
+    const { sendMessageMeshtastic } = await import("./send.js");
+    vi.mocked(sendMessageMeshtastic).mockClear();
+    await handleMeshtasticInbound({
+      message: createMessage(),
+      account: createAccount({
+        config: { dmPolicy: "allowlist", allowFrom: ["!00000002"], groupPolicy: "disabled" },
+      } as never),
+      config: { channels: { meshtastic: { host: "192.168.1.10" } } } as CoreConfig,
+      runtime: createRuntimeEnv(),
+      // Deliberately no sendReply: exercise deliverMeshtasticReply's fallback.
+    });
+    expect(producingSessionKey).toEqual(expect.any(String));
+    expect(sendMessageMeshtastic).toHaveBeenCalledWith(
+      "!00000002", "automatic reply",
+      expect.objectContaining({ sessionKey: producingSessionKey }),
     );
   });
 

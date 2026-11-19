@@ -55,7 +55,7 @@ export const meshtasticChannelConfigUiHints = {
   },
   sessionSendRateLimit: {
     label: "Per-Session Send Rate Limit",
-    help: "Low-level flood guard per producing session (defaults: 10 DM packets and 2210 trimmed UTF-8 text bytes per 10 minutes; 3 group packets). Throws a typed retry error before device I/O; no global hooks or queue. 2026.10.5/no-key sends are account-only. enabled:false affects only this layer.",
+    help: "Low-level flood guard per producing session (defaults: 10 DM packets and 2210 trimmed UTF-8 text bytes per 10 minutes; 3 group packets and 2210 bytes). Throws a typed retry error before device I/O; no global hooks or queue. Named accounts inherit the root and partial overrides deep-merge. 2026.10.5 adapter sends without a producing key are account-only; plugin auto-replies still use their route key. enabled:false affects only this layer.",
   },
   durability: {
     label: "Inbound Durability",

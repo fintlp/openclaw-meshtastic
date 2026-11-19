@@ -99,7 +99,9 @@ describe("Meshtastic low-level per-session flood guard (#5)", () => {
       Array.from({ length: 5 }, () => attempt({ cfg, handle, sessionKey: "agent:main:producer" })),
     );
     expect(results.filter((result) => result === null)).toHaveLength(3);
-    expect(results.filter((result) => result instanceof SessionSendRateLimitExceededError)).toHaveLength(2);
+    const errors = results.filter((result) => result instanceof SessionSendRateLimitExceededError);
+    expect(errors).toHaveLength(2);
+    for (const error of errors) expect(error).toBeInstanceOf(SendRateLimitExceededError);
     expect(sendText).toHaveBeenCalledTimes(3);
     expect(warn).toHaveBeenCalledTimes(2);
     for (const [line] of warn.mock.calls) {
@@ -112,9 +114,12 @@ describe("Meshtastic low-level per-session flood guard (#5)", () => {
   it("refuses before connect when one payload exceeds the exact packet boundary", async () => {
     const cfg = config({ textChunkLimit: 40, sessionSendRateLimit: { maxSends: 1, maxBytes: 100, groupMaxSends: 3 } });
     getMock.mockReturnValue(undefined);
-    await expect(sendMessageMeshtastic("!00000002", "x".repeat(41), {
-      cfg, sessionKey: "s",
-    })).rejects.toBeInstanceOf(SessionSendRateLimitExceededError);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const promise = sendMessageMeshtastic("!00000002", "x".repeat(41), { cfg, sessionKey: "s" });
+    await expect(promise).rejects.toBeInstanceOf(SessionSendRateLimitExceededError);
+    await expect(promise).rejects.toMatchObject({ retryAfterMs: 600_000 });
+    await expect(promise).rejects.toThrow("waiting alone will not admit it");
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("retryAfterMs=600000"));
     expect(connectMock).not.toHaveBeenCalled();
     expect(getMock).not.toHaveBeenCalled();
   });
@@ -167,8 +172,9 @@ describe("Meshtastic low-level per-session flood guard (#5)", () => {
     const handle = device(sendText);
     expect(await attempt({ cfg, handle })).toBeNull();
     expect(await attempt({ cfg, handle, sessionKey: "" })).toBeNull();
+    expect(await attempt({ cfg, handle, sessionKey: "   " })).toBeNull();
     expect(await attempt({ cfg, handle })).toBeNull();
-    expect(sendText).toHaveBeenCalledTimes(3);
+    expect(sendText).toHaveBeenCalledTimes(4);
   });
 
   it("disabled semantics affect only the session layer", async () => {
@@ -205,6 +211,27 @@ describe("Meshtastic low-level per-session flood guard (#5)", () => {
     const sendText = vi.fn(async () => 42);
     expect(await attempt({ cfg, handle: device(sendText), target: "channel:0", text, sessionKey: "group" })).toBeNull();
     expect(sendText).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses distinct DM and group caps and enforces session-before-account ordering", async () => {
+    const cfg = config({
+      groupTransmit: true,
+      sendRateLimit: { maxSends: 1, groupMaxSends: 3 },
+      sessionSendRateLimit: { maxSends: 1, maxBytes: 100, groupMaxSends: 2 },
+    });
+    const sendText = vi.fn(async () => 42);
+    const handle = device(sendText);
+    expect(await attempt({ cfg, handle, target: "channel:0", sessionKey: "caps" })).toBeNull();
+    expect(await attempt({ cfg, handle, target: "channel:0", sessionKey: "caps" })).toBeNull();
+    expect(await attempt({ cfg, handle, target: "!00000002", sessionKey: "caps" })).toBeNull();
+    const groupError = await attempt({ cfg, handle, target: "channel:0", sessionKey: "caps" });
+    expect(groupError).toBeInstanceOf(SessionSendRateLimitExceededError);
+    const dmError = await attempt({ cfg, handle, target: "!00000002", sessionKey: "caps" });
+    // Session 1+1 exceeds the per-session DM cap before the account DM cap.
+    expect(dmError).toBeInstanceOf(SessionSendRateLimitExceededError);
+    expect((dmError as Error).name).toBe("SessionSendRateLimitExceededError");
+    expect(dmError).toBeInstanceOf(SendRateLimitExceededError);
+    expect(sendText).toHaveBeenCalledTimes(3);
   });
 
   it("computes retryAfter from expiring events and does not charge refusals", () => {
@@ -247,7 +274,7 @@ describe("Meshtastic low-level per-session flood guard (#5)", () => {
     const manifest = JSON.parse(readFileSync(new URL("../openclaw.plugin.json", import.meta.url), "utf8"));
     const surface = manifest.channelConfigs.meshtastic;
     expect(surface.schema.properties.sessionSendRateLimit.default).toEqual(SESSION_SEND_RATE_LIMIT_DEFAULTS);
-    expect(surface.schema.properties.accounts.additionalProperties.properties.sessionSendRateLimit.default).toEqual(SESSION_SEND_RATE_LIMIT_DEFAULTS);
+    expect(surface.schema.properties.accounts.additionalProperties.properties.sessionSendRateLimit.default).toBeUndefined();
     expect(surface.uiHints.sessionSendRateLimit.help).toContain("10");
   });
 });
